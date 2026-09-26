@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const IMAGE_BUCKET = "post-images";
@@ -151,6 +151,12 @@ function isArchivedMarketDiscussion(discussion) {
   return false;
 }
 
+const COMPOSER_EMOJIS = [
+  "😀", "😂", "🙂", "😍", "🤝", "👍", "👎", "🔥", "🚀", "💡",
+  "📈", "📉", "💰", "🎯", "⚡", "👀", "✅", "❌", "⚠️", "💎",
+  "🧠", "🫡", "🙏", "💯"
+];
+
 export default function Discussion({
   discussion,
   goBack,
@@ -164,6 +170,7 @@ export default function Discussion({
   const [mentionSuggestions, setMentionSuggestions] = useState([]);
   const [reactions, setReactions] = useState({});
   const [images, setImages] = useState([]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
@@ -193,6 +200,7 @@ export default function Discussion({
     useState(false);
 
   const previewRef = useRef([]);
+  const composerRef = useRef(null);
 
   const isAdmin =
     user.roles?.includes("ADMIN") ||
@@ -210,6 +218,26 @@ export default function Discussion({
   const marketReplyOnly =
     isMarketSegment &&
     (Boolean(discussion.marketReplyOnly) || isArchivedMarketDiscussion(discussion));
+
+  const draftKey = `dwmy:discussion-draft:${user.id}:${discussion.id}`;
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(draftKey);
+      if (saved) setReply(saved);
+    } catch (err) {
+      console.warn("Draft restore unavailable:", err);
+    }
+  }, [draftKey]);
+
+  useEffect(() => {
+    try {
+      if (reply) window.localStorage.setItem(draftKey, reply);
+      else window.localStorage.removeItem(draftKey);
+    } catch (err) {
+      console.warn("Draft save unavailable:", err);
+    }
+  }, [draftKey, reply]);
 
   useEffect(() => {
     previewRef.current = images;
@@ -596,6 +624,50 @@ export default function Discussion({
     }
   }
 
+  function replaceComposerSelection(prefix, suffix = prefix, fallback = "text") {
+    const composer = composerRef.current;
+    if (!composer) return;
+
+    const start = composer.selectionStart ?? reply.length;
+    const end = composer.selectionEnd ?? start;
+    const selected = reply.slice(start, end) || fallback;
+    const next = reply.slice(0, start) + prefix + selected + suffix + reply.slice(end);
+    setReply(next);
+
+    requestAnimationFrame(() => {
+      composer.focus();
+      const cursor = start + prefix.length + selected.length + suffix.length;
+      composer.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  function insertComposerText(text) {
+    const composer = composerRef.current;
+    if (!composer) return;
+    const start = composer.selectionStart ?? reply.length;
+    const end = composer.selectionEnd ?? start;
+    const next = reply.slice(0, start) + text + reply.slice(end);
+    setReply(next);
+    setShowEmojiPicker(false);
+    requestAnimationFrame(() => {
+      composer.focus();
+      const cursor = start + text.length;
+      composer.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  function quoteComposerSelection() {
+    const composer = composerRef.current;
+    if (!composer) return;
+    const start = composer.selectionStart ?? reply.length;
+    const end = composer.selectionEnd ?? start;
+    const selected = reply.slice(start, end) || "quoted text";
+    const quoted = selected.split("\n").map((line) => `> ${line}`).join("\n");
+    const next = reply.slice(0, start) + quoted + reply.slice(end);
+    setReply(next);
+    requestAnimationFrame(() => composer.focus());
+  }
+
   async function submitReply(event) {
     event.preventDefault();
 
@@ -642,6 +714,7 @@ export default function Discussion({
       );
 
       setReply("");
+      setShowEmojiPicker(false);
       setReplyTarget(null);
       setImages([]);
 
@@ -1383,7 +1456,33 @@ export default function Discussion({
 
           {(!marketReplyOnly || replyTarget) && (
             <>
+          <div className="composer-toolbar" aria-label="Post formatting tools">
+            <button type="button" title="Bold" onClick={() => replaceComposerSelection("**", "**", "bold text")}><strong>B</strong></button>
+            <button type="button" title="Italic" onClick={() => replaceComposerSelection("*", "*", "italic text")}><em>I</em></button>
+            <button type="button" title="Inline code" onClick={() => replaceComposerSelection("`", "`", "code")}>{"</>"}</button>
+            <button type="button" title="Quote" onClick={quoteComposerSelection}>❝</button>
+            <span className="composer-toolbar-divider" />
+            <button
+              type="button"
+              className={showEmojiPicker ? "active" : ""}
+              title="Emoji"
+              onClick={() => setShowEmojiPicker((current) => !current)}
+            >
+              ☺
+            </button>
+            <span className="composer-draft-status">Draft saved locally</span>
+          </div>
+
+          {showEmojiPicker && (
+            <div className="composer-emoji-picker">
+              {COMPOSER_EMOJIS.map((emoji) => (
+                <button type="button" key={emoji} onClick={() => insertComposerText(emoji)}>{emoji}</button>
+              ))}
+            </div>
+          )}
+
           <textarea
+            ref={composerRef}
             id="dwmy-reply-composer"
             value={reply}
             onChange={handleReplyChange}

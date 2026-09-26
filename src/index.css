@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
 
 :root {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -3361,3 +3361,222 @@ button:disabled {
 .instrument-stats-loading,.instrument-stats-empty { color:var(--muted); font-size:9px; padding-top:18px; }
 @media(max-width:900px){.instrument-hero{grid-template-columns:1fr;}.instrument-stats-panel{margin-top:4px;}}
 @media(max-width:560px){.instrument-stat-grid{grid-template-columns:repeat(2,1fr);}.instrument-resolution-stats{grid-template-columns:repeat(2,1fr);}}
+/* DWMY Home Hero Carousel V1 */
+.home-hero-carousel {
+  position: relative;
+  margin-bottom: 34px;
+}
+.home-hero-viewport {
+  overflow: hidden;
+  border-radius: 12px;
+}
+.home-hero-track {
+  display: flex;
+  width: 100%;
+  transition: transform 620ms cubic-bezier(.22,.61,.36,1);
+}
+.home-hero-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+.community-coming-soon {
+  min-height: 100%;
+}
+.community-hero-line {
+  display: block;
+  margin-top: 18px;
+  font-size: 11px;
+  letter-spacing: .035em;
+}
+.community-coming-soon-mark {
+  min-width: 210px;
+  border-left: 1px solid var(--border-soft);
+  padding-left: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+.community-coming-soon-mark span {
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: .12em;
+}
+.community-coming-soon-mark strong {
+  margin-top: 7px;
+  font-size: 20px;
+  letter-spacing: .04em;
+}
+.community-coming-soon-mark small {
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+.hero-carousel-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 28px;
+  height: 38px;
+  margin-top: -24px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1;
+  opacity: .72;
+}
+.hero-carousel-arrow:hover {
+  color: var(--text);
+  opacity: 1;
+}
+.hero-carousel-prev { left: -14px; }
+.hero-carousel-next { right: -14px; }
+.hero-carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.hero-carousel-dots button {
+  width: 18px;
+  height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--border);
+}
+.hero-carousel-dots button.active {
+  background: var(--accent);
+}
+@media (max-width: 760px) {
+  .community-coming-soon-mark {
+    display: none;
+  }
+  .hero-carousel-prev { left: 6px; }
+  .hero-carousel-next { right: 6px; }
+}
+
+
+/* ==========================================================
+   DWMY Home Hero Carousel V1.1 — stat-layout repair
+   Preserve original .hero-stat-grid presentation inside slides.
+   ========================================================== */
+.home-hero-slide .hero-stat-grid {
+  min-width: 180px;
+  display: grid;
+  gap: 22px;
+  padding-left: 30px;
+}
+
+.home-hero-slide .hero-stat-grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-hero-slide .hero-stat-grid strong {
+  display: block;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.home-hero-slide .hero-stat-grid span {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 850px) {
+  .home-hero-slide .hero-stat-grid {
+    width: 100%;
+    grid-template-columns: repeat(3, 1fr);
+    padding: 35px 0 0;
+  }
+}
+
+
+/* ==========================================================
+   DWMY EDITOR V1 — COMPOSER TOOLBAR / EMOJI / LOCAL DRAFTS
+   ========================================================== */
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 42px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--border-soft);
+  background: #0d1219;
+}
+
+.composer-toolbar button {
+  width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.composer-toolbar button:hover,
+.composer-toolbar button.active {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.composer-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 3px;
+  background: var(--border);
+}
+
+.composer-draft-status {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.composer-emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 34px);
+  gap: 4px;
+  width: fit-content;
+  max-width: calc(100% - 22px);
+  margin: 10px 11px 0;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a0f16;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .28);
+}
+
+.composer-emoji-picker button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 18px;
+}
+
+.composer-emoji-picker button:hover {
+  background: var(--surface-2);
+}
+
+@media (max-width: 600px) {
+  .composer-draft-status { display: none; }
+  .composer-emoji-picker { grid-template-columns: repeat(6, 34px); }
+}
