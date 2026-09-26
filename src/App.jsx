@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import "./index.css";
 
 import { supabase } from "./lib/supabaseClient";
@@ -388,6 +388,53 @@ export default function App() {
     window.scrollTo(0, 0);
   }
 
+
+  function openSearchResult(result) {
+    if (result?.type === "instrument" && result.section && result.instrument) {
+      setSelectedInstrument({
+        section: result.section,
+        instrument: result.instrument,
+      });
+      setSelectedDiscussion(null);
+      setPage("instrument");
+      window.scrollTo(0, 0);
+      return;
+    }
+
+    if (
+      (result?.type === "discussion" || result?.type === "post") &&
+      result.discussion
+    ) {
+      setSelectedDiscussion(result.discussion);
+
+      if (result.discussion.instrumentId) {
+        setSelectedInstrument({
+          section: {
+            id: result.discussion.sectionId,
+            name: result.discussion.section,
+          },
+          instrument: {
+            id: result.discussion.instrumentId,
+            symbol: result.discussion.instrument,
+            name: result.discussion.instrumentName,
+            section_id: result.discussion.sectionId,
+          },
+        });
+      }
+
+      setPage("discussion");
+
+      const base = `${window.location.pathname}${window.location.search}`;
+      const hash =
+        result.type === "post" && result.publicRef
+          ? `#${result.publicRef}`
+          : "";
+
+      window.history.replaceState(null, "", `${base}${hash}`);
+      window.scrollTo(0, 0);
+    }
+  }
+
   function openDiscussion(discussion) {
     setSelectedDiscussion(discussion);
     setPage("discussion");
@@ -449,6 +496,7 @@ export default function App() {
           handleAccessGranted
         }
         onLogout={logout}
+        onOpenSearchResult={openSearchResult}
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
       />
