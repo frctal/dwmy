@@ -496,7 +496,6 @@ export default function App() {
           handleAccessGranted
         }
         onLogout={logout}
-        onOpenSearchResult={openSearchResult}
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
       />
@@ -523,6 +522,7 @@ export default function App() {
           window.scrollTo(0, 0);
         }}
         onLogout={logout}
+        onOpenSearchResult={openSearchResult}
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
       />
