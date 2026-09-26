@@ -35,3 +35,5 @@ upgrade-v03b-real-markets.ps1
 backup-v07-*/
 *handoff.zip
 *social-frontend.zip
+
+supabase/.temp/

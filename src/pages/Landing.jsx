@@ -1,11 +1,14 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 export default function Landing() {
   const [mode, setMode] = useState("landing");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [loginIdentity, setLoginIdentity] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -13,6 +16,108 @@ export default function Landing() {
   function resetStatus() {
     setMessage("");
     setError("");
+  }
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        resetStatus();
+        setMode("recovery");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function resolveLoginEmail(identity) {
+    const clean = identity.trim();
+
+    if (clean.includes("@")) {
+      return clean;
+    }
+
+    const { data, error: resolveError } = await supabase.rpc(
+      "resolve_login_email",
+      {
+        submitted_username: clean,
+      }
+    );
+
+    if (resolveError) throw resolveError;
+
+    if (!data) {
+      throw new Error("Invalid email/username or password.");
+    }
+
+    return data;
+  }
+
+  async function requestPasswordReset(event) {
+    event.preventDefault();
+    resetStatus();
+
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail) {
+      setError("Enter the email address for your DWMY account.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const redirectTo = `${window.location.origin}${window.location.pathname}`;
+
+      const { error: resetError } =
+        await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo,
+        });
+
+      if (resetError) throw resetError;
+
+      setMessage(
+        "If that email belongs to a DWMY account, a password reset link has been sent."
+      );
+    } catch (err) {
+      setError(err.message || "Password reset request failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateRecoveredPassword(event) {
+    event.preventDefault();
+    resetStatus();
+
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) throw updateError;
+
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password updated. You can continue into DWMY.");
+    } catch (err) {
+      setError(err.message || "Password update failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submit(e) {
@@ -46,13 +151,17 @@ export default function Landing() {
           );
         }
       } else {
+        const resolvedEmail = await resolveLoginEmail(loginIdentity);
+
         const { error: signInError } =
           await supabase.auth.signInWithPassword({
-            email: email.trim(),
+            email: resolvedEmail,
             password,
           });
 
-        if (signInError) throw signInError;
+        if (signInError) {
+          throw new Error("Invalid email/username or password.");
+        }
       }
     } catch (err) {
       setError(err.message || "Authentication failed.");
@@ -79,21 +188,98 @@ export default function Landing() {
 
         <div className="auth-card">
           <span className="eyebrow">
-            {mode === "signup" ? "Join DWMY" : "Welcome back"}
+            {mode === "signup"
+              ? "Join DWMY"
+              : mode === "forgot"
+              ? "Account recovery"
+              : mode === "recovery"
+              ? "Choose a new password"
+              : "Welcome back"}
           </span>
 
           <h1>
             {mode === "signup"
               ? "Create your account."
+              : mode === "forgot"
+              ? "Reset your password."
+              : mode === "recovery"
+              ? "Set your new password."
               : "Sign in to DWMY."}
           </h1>
 
           <p>
             {mode === "signup"
               ? "Your market conversations, organized across time."
+              : mode === "forgot"
+              ? "Enter the email address connected to your DWMY account."
+              : mode === "recovery"
+              ? "Choose a new password for your DWMY account."
               : "Enter your market network."}
           </p>
 
+          {mode === "forgot" ? (
+            <form onSubmit={requestPasswordReset}>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
+              </label>
+
+              {error && <div className="auth-error">{error}</div>}
+              {message && <div className="auth-success">{message}</div>}
+
+              <button
+                className="auth-submit"
+                type="submit"
+                disabled={busy}
+              >
+                {busy ? "Please wait..." : "Send Reset Link"}
+              </button>
+            </form>
+          ) : mode === "recovery" ? (
+            <form onSubmit={updateRecoveredPassword}>
+              <label>
+                New password
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                />
+              </label>
+
+              <label>
+                Confirm new password
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                />
+              </label>
+
+              {error && <div className="auth-error">{error}</div>}
+              {message && <div className="auth-success">{message}</div>}
+
+              <button
+                className="auth-submit"
+                type="submit"
+                disabled={busy}
+              >
+                {busy ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          ) : (
           <form onSubmit={submit}>
             {mode === "signup" && (
               <label>
@@ -112,19 +298,36 @@ export default function Landing() {
               </label>
             )}
 
-            <label>
-              Email
-              <input
-                type="email"
-                value={email}
-                onChange={(e) =>
-                  setEmail(e.target.value)
-                }
-                placeholder="you@example.com"
-                autoComplete="email"
-                required
-              />
-            </label>
+            {mode === "signup" ? (
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) =>
+                    setEmail(e.target.value)
+                  }
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
+              </label>
+            ) : (
+              <label>
+                Email or username
+                <input
+                  value={loginIdentity}
+                  onChange={(e) =>
+                    setLoginIdentity(e.target.value)
+                  }
+                  placeholder="Email or username"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  required
+                />
+              </label>
+            )}
 
             <label>
               Password
@@ -169,7 +372,17 @@ export default function Landing() {
                 : "Sign In"}
             </button>
           </form>
+          )}
 
+          {mode === "signin" && (
+            <div className="auth-switch">
+              <button onClick={() => openMode("forgot")}>
+                Forgot password?
+              </button>
+            </div>
+          )}
+
+          {mode !== "recovery" && (
           <div className="auth-switch">
             {mode === "signup" ? (
               <>
@@ -191,6 +404,7 @@ export default function Landing() {
               </>
             )}
           </div>
+          )}
         </div>
       </div>
     );
@@ -327,4 +541,3 @@ export default function Landing() {
     </div>
   );
 }
-
