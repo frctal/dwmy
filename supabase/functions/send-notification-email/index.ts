@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -76,13 +76,13 @@ Deno.serve(async (req) => {
     let subject = "New DWMY notification";
     let heading = "You have a new notification on DWMY.";
     if (type === "REPLY") {
-      subject = `DWMY — ${actorName} replied to you`;
+      subject = `DWMY - ${actorName} replied to you`;
       heading = `${actorName} replied to your post.`;
     } else if (type === "MENTION") {
-      subject = `DWMY — ${actorName} mentioned you`;
+      subject = `DWMY - ${actorName} mentioned you`;
       heading = `${actorName} mentioned you.`;
     } else if (type === "DIRECT_MESSAGE") {
-      subject = `DWMY — New message from ${actorName}`;
+      subject = `DWMY - New message from ${actorName}`;
       heading = `${actorName} sent you a direct message.`;
     }
 
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
       if (dm?.body) detail = dm.body.replace(/\s+/g, " ").trim().slice(0, 180);
     }
 
-    const appUrl = "https://frctal.github.io/dwmy/";
+    const appUrl = "https://dwmy.pro/";
     const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:28px;color:#111827">
       <div style="font-size:28px;font-weight:800">DWMY</div>
       <div style="font-size:12px;color:#6b7280;margin-bottom:28px">a FRCTAL company</div>
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "DWMY <onboarding@resend.dev>",
+        from: "DWMY <notifications@dwmy.pro>",
         to: [recipient.user.email],
         subject,
         html,
