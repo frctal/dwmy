@@ -14,6 +14,7 @@ import Admin from "./pages/Admin";
 import Conversations from "./pages/Conversations";
 import Notifications from "./pages/Notifications";
 import Messages from "./pages/Messages";
+import Settings from "./pages/Settings";
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -133,7 +134,7 @@ export default function App() {
     } = await supabase
       .from("profiles")
       .select(
-        "id, username, display_name, bio, avatar_path, created_at"
+        "id, username, display_name, bio, signature, avatar_path, created_at"
       )
       .eq("id", authUser.id)
       .single();
@@ -464,6 +465,15 @@ export default function App() {
         page={page}
         setPage={setPage}
         user={user}
+        onOpenSettings={() => {
+          setPage("settings");
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`
+          );
+          window.scrollTo(0, 0);
+        }}
         onLogout={logout}
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
@@ -549,6 +559,18 @@ export default function App() {
             user={user}
             initialConversationId={selectedMessageConversation}
             onChanged={() => loadActivityCounts(true)}
+          />
+        )}
+
+        {page === "settings" && (
+          <Settings
+            user={user}
+            entitlements={entitlements}
+            onProfileUpdated={() =>
+              session?.user
+                ? loadIdentity(session.user, true)
+                : Promise.resolve()
+            }
           />
         )}
 

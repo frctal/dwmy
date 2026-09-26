@@ -18,6 +18,26 @@ export default function Messages({
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [error, setError] = useState("");
 
+  async function withAvatarUrl(profile) {
+    if (!profile?.avatar_path) {
+      return profile ? { ...profile, avatar_url: null } : profile;
+    }
+
+    const { data, error } = await supabase.storage
+      .from("avatars")
+      .createSignedUrl(profile.avatar_path, 3600);
+
+    if (error) {
+      console.error("Message avatar load failed:", error);
+      return { ...profile, avatar_url: null };
+    }
+
+    return {
+      ...profile,
+      avatar_url: data?.signedUrl || null,
+    };
+  }
+
   async function loadConversations() {
     const { data, error } = await supabase
       .from("message_participants")
@@ -36,7 +56,8 @@ export default function Messages({
             profiles(
               id,
               username,
-              display_name
+              display_name,
+              avatar_path
             )
           )
         )
@@ -50,7 +71,31 @@ export default function Messages({
       return;
     }
 
-    setConversations(data || []);
+    const hydrated = await Promise.all(
+      (data || []).map(async (conversation) => {
+        const participantRows =
+          conversation.participants?.message_participants || [];
+
+        const nextParticipants = await Promise.all(
+          participantRows.map(async (participant) => ({
+            ...participant,
+            profiles: await withAvatarUrl(participant.profiles),
+          }))
+        );
+
+        return {
+          ...conversation,
+          participants: conversation.participants
+            ? {
+                ...conversation.participants,
+                message_participants: nextParticipants,
+              }
+            : conversation.participants,
+        };
+      })
+    );
+
+    setConversations(hydrated);
   }
 
   async function loadMessages(id) {
@@ -73,7 +118,8 @@ export default function Messages({
         sender:profiles!direct_messages_sender_id_fkey(
           id,
           username,
-          display_name
+          display_name,
+          avatar_path
         )
       `)
       .eq("conversation_id", id)
@@ -84,7 +130,14 @@ export default function Messages({
       return;
     }
 
-    setMessages(data || []);
+    const hydrated = await Promise.all(
+      (data || []).map(async (message) => ({
+        ...message,
+        sender: await withAvatarUrl(message.sender),
+      }))
+    );
+
+    setMessages(hydrated);
 
     await supabase.rpc("mark_message_conversation_read", {
       target_conversation_id: id,
@@ -230,17 +283,21 @@ export default function Messages({
     setBody(normalized);
   }
 
-  function otherName(conversation) {
+  function otherProfile(conversation) {
     const participants =
       conversation.participants?.message_participants || [];
 
-    const other = participants.find(
+    return participants.find(
       (participant) => participant.user_id !== user.id
-    );
+    )?.profiles || null;
+  }
+
+  function otherName(conversation) {
+    const other = otherProfile(conversation);
 
     return (
-      other?.profiles?.display_name ||
-      other?.profiles?.username ||
+      other?.display_name ||
+      other?.username ||
       `Conversation ${conversation.conversation_id}`
     );
   }
@@ -327,9 +384,22 @@ export default function Messages({
                   setSelected(conversation.conversation_id)
                 }
               >
-                <strong>
-                  {otherName(conversation)}
-                </strong>
+                <div className="message-inbox-identity">
+                  <span className="message-avatar">
+                    {otherProfile(conversation)?.avatar_url ? (
+                      <img
+                        src={otherProfile(conversation).avatar_url}
+                        alt=""
+                      />
+                    ) : (
+                      otherName(conversation)[0]?.toUpperCase() || "D"
+                    )}
+                  </span>
+
+                  <strong>
+                    {otherName(conversation)}
+                  </strong>
+                </div>
 
                 <span>
                   {conversation.message_conversations
@@ -363,11 +433,25 @@ export default function Messages({
                         : "direct-message"
                     }
                   >
-                    <strong>
-                      {message.sender?.display_name ||
-                        message.sender?.username ||
-                        "DWMY User"}
-                    </strong>
+                    <div className="direct-message-author">
+                      <span className="message-avatar">
+                        {message.sender?.avatar_url ? (
+                          <img src={message.sender.avatar_url} alt="" />
+                        ) : (
+                          (
+                            message.sender?.display_name ||
+                            message.sender?.username ||
+                            "D"
+                          )[0]?.toUpperCase()
+                        )}
+                      </span>
+
+                      <strong>
+                        {message.sender?.display_name ||
+                          message.sender?.username ||
+                          "DWMY User"}
+                      </strong>
+                    </div>
 
                     <p className="direct-message-body">
                       {message.is_deleted ? (

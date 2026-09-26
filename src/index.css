@@ -2471,3 +2471,360 @@ button:disabled {
 .username-confirmed {
   opacity: 0.9;
 }
+/* ============================================================
+   V0.8A — Account Settings
+   ============================================================ */
+
+.user-account-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  border-radius: 10px;
+  padding: 4px 7px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.user-account-button:hover,
+.user-account-button.active {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.user-account-button .avatar {
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.user-account-button .avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-account-button .user-identity {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-page {
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding: 34px 0 72px;
+}
+
+.settings-heading {
+  margin-bottom: 22px;
+}
+
+.settings-heading h1 {
+  margin: 5px 0 7px;
+}
+
+.settings-heading p {
+  margin: 0;
+  opacity: 0.68;
+}
+
+.settings-card {
+  margin-bottom: 18px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.settings-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+
+.settings-card-heading h2 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+}
+
+.settings-username {
+  opacity: 0.58;
+  font-size: 0.86rem;
+}
+
+.settings-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 22px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.settings-avatar {
+  width: 76px;
+  height: 76px;
+  flex: 0 0 76px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.settings-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.settings-avatar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-avatar-actions > span {
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.settings-avatar-actions > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 5px;
+}
+
+.settings-file-input {
+  display: none;
+}
+
+.settings-text-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.62;
+  cursor: pointer;
+  padding: 5px 0;
+}
+
+.settings-text-button:hover {
+  opacity: 1;
+}
+
+.settings-form {
+  display: grid;
+  gap: 17px;
+}
+
+.settings-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-form label > span,
+.settings-readonly-row > span,
+.settings-membership-grid span {
+  font-size: 0.78rem;
+  opacity: 0.62;
+}
+
+.settings-form input,
+.settings-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #293646;
+  border-radius: 9px;
+  background: #0c1219;
+  color: #f2f5f8;
+  padding: 11px 13px;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+}
+
+.settings-form input:focus,
+.settings-form textarea:focus {
+  border-color: #52657b;
+}
+
+.settings-form input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-form label small {
+  justify-self: end;
+  opacity: 0.48;
+  font-size: 0.72rem;
+}
+
+.settings-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 3px;
+}
+
+.settings-status {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-status.success {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.settings-status.error {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.settings-readonly-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 0 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.password-form {
+  max-width: 540px;
+}
+
+.settings-membership-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-membership-grid > div {
+  min-height: 62px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.settings-membership-grid strong {
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 720px) {
+  .user-account-button .user-identity {
+    display: none;
+  }
+
+  .settings-page {
+    padding-top: 22px;
+  }
+
+  .settings-card {
+    padding: 17px;
+  }
+
+  .settings-membership-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-avatar-row {
+    align-items: flex-start;
+  }
+
+  .settings-readonly-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+/* V0.8A — contribution + message identity */
+
+.post-avatar {
+  overflow: hidden;
+}
+
+.post-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.post-signature {
+  display: block;
+  max-width: 150px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  opacity: 0.58;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-inbox-identity,
+.direct-message-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.message-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.direct-message-author {
+  margin-bottom: 4px;
+}
+/* V0.8A — compact post identity */
+
+.post-author .user-link {
+  max-width: 150px;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-author > span:not(.post-signature) {
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.post-signature {
+  max-width: 150px;
+  font-size: 0.68rem;
+}

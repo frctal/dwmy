@@ -170,8 +170,26 @@ export default function Discussion({
           )
         );
 
+        let avatarUrl = null;
+
+        if (post.profiles?.avatar_path) {
+          const { data: avatarData, error: avatarError } =
+            await supabase.storage
+              .from("avatars")
+              .createSignedUrl(post.profiles.avatar_path, 3600);
+
+          if (avatarError) {
+            console.error("Avatar signed URL failed:", avatarError);
+          } else {
+            avatarUrl = avatarData?.signedUrl || null;
+          }
+        }
+
         return {
           ...post,
+          profiles: post.profiles
+            ? { ...post.profiles, avatar_url: avatarUrl }
+            : post.profiles,
           attachments: attachments.filter(Boolean),
         };
       })
@@ -198,7 +216,9 @@ export default function Discussion({
         profiles!posts_author_id_fkey (
           id,
           username,
-          display_name
+          display_name,
+          signature,
+          avatar_path
         ),
         attachments (
           id,
@@ -531,6 +551,12 @@ export default function Discussion({
       setReply("");
       setReplyTarget(null);
       setImages([]);
+
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`
+      );
 
       await loadPosts();
     } catch (err) {
@@ -1009,7 +1035,15 @@ export default function Discussion({
               >
                 <aside className="post-author">
                   <div className="post-avatar">
-                    {name[0]?.toUpperCase() || "D"}
+                    {post.profiles?.avatar_url ? (
+                      <img
+                        src={post.profiles.avatar_url}
+                        alt=""
+                        loading="lazy"
+                      />
+                    ) : (
+                      name[0]?.toUpperCase() || "D"
+                    )}
                   </div>
 
                   <button
@@ -1034,6 +1068,12 @@ export default function Discussion({
                       ? user.role?.toUpperCase()
                       : "MEMBER"}
                   </span>
+
+                  {!post.is_deleted && post.profiles?.signature && (
+                    <span className="post-signature">
+                      {post.profiles.signature}
+                    </span>
+                  )}
                 </aside>
 
                 <div className="post-body">
