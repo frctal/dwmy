@@ -30,6 +30,7 @@ export default function App() {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [selectedMessageConversation, setSelectedMessageConversation] = useState(null);
+  const [selectedModerationIncident, setSelectedModerationIncident] = useState(null);
 
   const [
     selectedDiscussion,
@@ -364,6 +365,15 @@ export default function App() {
     loadActivityCounts(true);
   }
 
+  function openNotificationModeration(incidentId) {
+    if (!incidentId || !isAdmin) return;
+    setSelectedModerationIncident(incidentId);
+    setPage("admin");
+    window.location.hash = "";
+    window.scrollTo(0, 0);
+    loadActivityCounts(true);
+  }
+
   async function handleAccessGranted() {
     await loadAccess(true, false);
 
@@ -607,6 +617,7 @@ export default function App() {
           <Notifications
             onOpenPost={openNotificationPost}
             onOpenMessage={openNotificationMessage}
+            onOpenModeration={openNotificationModeration}
             onChanged={() => loadActivityCounts(true)}
           />
         )}
@@ -632,7 +643,12 @@ export default function App() {
         )}
 
         {page === "admin" &&
-          isAdmin && <Admin />}
+          isAdmin && (
+            <Admin
+              initialModerationIncidentId={selectedModerationIncident}
+              onModerationIncidentOpened={() => setSelectedModerationIncident(null)}
+            />
+          )}
 
         {page === "admin" &&
           !isAdmin && (

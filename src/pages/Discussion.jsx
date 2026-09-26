@@ -172,10 +172,23 @@ export default function Discussion({
   const [images, setImages] = useState([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
+  // Moderation V1.1 — user reporting.
+  const [reportTarget, setReportTarget] = useState(null);
+  const [reportReasons, setReportReasons] = useState([]);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportSuccess, setReportSuccess] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
+
+  // Moderation V1.3.1 — explain effective posting restrictions before submit.
+  const [postingRestriction, setPostingRestriction] = useState(null);
+  const [restrictionLoading, setRestrictionLoading] = useState(true);
 
   const [editingId, setEditingId] = useState(null);
   const [editBody, setEditBody] = useState("");
@@ -474,6 +487,44 @@ export default function Discussion({
     }, 0);
   }
 
+  function restrictionExpiryLabel(value) {
+    if (!value) return "until revoked";
+    return new Date(value).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  function restrictionTitle(restriction) {
+    if (!restriction) return "";
+    if (restriction.restriction_type === "MUTE") return "Participation muted";
+    if (restriction.restriction_type === "SUSPENSION") return "Participation suspended";
+    return "Participation restricted";
+  }
+
+  async function loadPostingRestriction() {
+    setRestrictionLoading(true);
+
+    const { data, error } = await supabase.rpc(
+      "get_my_moderation_restriction",
+      { target_discussion_id: discussion.id }
+    );
+
+    if (error) {
+      console.error("Restriction state load failed:", error);
+      setPostingRestriction(null);
+      setRestrictionLoading(false);
+      return;
+    }
+
+    const state = Array.isArray(data) ? data[0] : data;
+    setPostingRestriction(state?.restricted ? state : null);
+    setRestrictionLoading(false);
+  }
+
   async function loadConversationState() {
     if (!isConversation) return;
 
@@ -516,6 +567,7 @@ export default function Discussion({
   useEffect(() => {
     loadPosts();
     loadConversationState();
+    loadPostingRestriction();
   }, [discussion.id]);
 
   useEffect(() => {
@@ -671,6 +723,13 @@ export default function Discussion({
   async function submitReply(event) {
     event.preventDefault();
 
+    if (postingRestriction) {
+      setError(
+        `${restrictionTitle(postingRestriction)} ${postingRestriction.expires_at ? `until ${restrictionExpiryLabel(postingRestriction.expires_at)}` : "until revoked"}.`
+      );
+      return;
+    }
+
     if (isConversation && conversationLocked) {
       setError(
         "This conversation is locked."
@@ -781,6 +840,50 @@ export default function Discussion({
 
     cancelEdit();
     await loadPosts();
+  }
+
+  async function openPostReport(post) {
+    if (!post || post.author_id === user.id || post.is_deleted) return;
+    setReportTarget(post);
+    setReportReason(""); setReportDetails(""); setReportError(""); setReportSuccess("");
+    setReportLoading(true);
+    const { data, error } = await supabase.rpc("get_moderation_report_reasons");
+    if (error) {
+      console.error("Could not load report reasons:", error);
+      setReportError(error.message || "Could not load report reasons.");
+      setReportReasons([]);
+    } else {
+      const reasons = data || [];
+      setReportReasons(reasons);
+      setReportReason(reasons[0]?.code || "");
+    }
+    setReportLoading(false);
+  }
+
+  function closePostReport() {
+    if (reportLoading) return;
+    setReportTarget(null); setReportReason(""); setReportDetails("");
+    setReportError(""); setReportSuccess("");
+  }
+
+  async function submitPostReport(event) {
+    event.preventDefault();
+    if (!reportTarget || !reportReason || reportLoading) return;
+    setReportLoading(true); setReportError(""); setReportSuccess("");
+    const { data, error } = await supabase.rpc("submit_moderation_report", {
+      target_type: "POST",
+      target_id: String(reportTarget.id),
+      reason_code: reportReason,
+      report_details: reportDetails.trim() || null,
+    });
+    if (error) {
+      console.error("Report submission failed:", error);
+      setReportError(error.message || "Could not submit report.");
+      setReportLoading(false); return;
+    }
+    const result = Array.isArray(data) ? data[0] : data;
+    setReportSuccess(result?.incident_ref ? `Report submitted · ${result.incident_ref}` : "Report submitted.");
+    setReportLoading(false);
   }
 
   async function removePost(post) {
@@ -1292,7 +1395,15 @@ export default function Discussion({
                           </button>
                         )}
 
-
+                        {!owns && (
+                          <button
+                            type="button"
+                            className="dwmy-text-button report-post-button"
+                            onClick={() => openPostReport(post)}
+                          >
+                            Report
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1397,7 +1508,29 @@ export default function Discussion({
           })}
       </div>
 
-      {isConversation && conversationLocked ? (
+      {postingRestriction ? (
+        <div className="reply-box locked-reply-box moderation-restriction-reply-box">
+          <div className="reply-heading">
+            <strong>{restrictionTitle(postingRestriction)}</strong>
+            <span>
+              {postingRestriction.expires_at
+                ? `Until ${restrictionExpiryLabel(postingRestriction.expires_at)}`
+                : "Until revoked"}
+            </span>
+          </div>
+
+          <div className="moderation-restriction-detail" role="status">
+            <span>You can continue reading this discussion, but posting and replies are currently disabled.</span>
+            {postingRestriction.reason_text && (
+              <span><strong>Reason:</strong> {postingRestriction.reason_text}</span>
+            )}
+            <span>
+              <strong>Scope:</strong> {postingRestriction.scope_type}
+              {postingRestriction.incident_ref ? ` · ${postingRestriction.incident_ref}` : ""}
+            </span>
+          </div>
+        </div>
+      ) : isConversation && conversationLocked ? (
         <div className="reply-box locked-reply-box">
           <div className="reply-heading">
             <strong>
@@ -1568,6 +1701,50 @@ export default function Discussion({
             </>
           )}
         </form>
+      )}
+
+
+      {reportTarget && (
+        <div className="moderation-modal-backdrop" role="presentation">
+          <div className="moderation-report-modal" role="dialog" aria-modal="true" aria-labelledby="dwmy-report-title">
+            <div className="moderation-report-heading">
+              <div>
+                <span className="eyebrow">DWMY Moderation</span>
+                <h2 id="dwmy-report-title">Report post</h2>
+                <p>Report {publicRef(reportTarget)} by {authorName(reportTarget)}. A report starts a moderation review; it is not itself a finding.</p>
+              </div>
+              <button type="button" onClick={closePostReport} disabled={reportLoading}>×</button>
+            </div>
+
+            {reportSuccess ? (
+              <div className="moderation-report-success">
+                <strong>{reportSuccess}</strong>
+                <p>The report is now in the DWMY moderation queue.</p>
+                <button type="button" className="primary-button" onClick={closePostReport}>Done</button>
+              </div>
+            ) : (
+              <form onSubmit={submitPostReport}>
+                {reportError && <div className="moderation-report-error">{reportError}</div>}
+                <label>
+                  Reason
+                  <select value={reportReason} onChange={(event) => setReportReason(event.target.value)} disabled={reportLoading || reportReasons.length === 0} required>
+                    {reportReasons.length === 0 && <option value="">{reportLoading ? "Loading reasons..." : "No reasons available"}</option>}
+                    {reportReasons.map((reason) => <option key={reason.id} value={reason.code}>{reason.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Details <span>Optional</span>
+                  <textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value.slice(0, 4000))} placeholder="Add context that will help the moderation team review this report." maxLength={4000} />
+                  <small>{reportDetails.length.toLocaleString()} / 4,000</small>
+                </label>
+                <div className="moderation-report-actions">
+                  <button type="button" onClick={closePostReport} disabled={reportLoading}>Cancel</button>
+                  <button type="submit" className="primary-button" disabled={reportLoading || !reportReason}>{reportLoading ? "Submitting..." : "Submit Report"}</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
