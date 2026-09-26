@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const IMAGE_BUCKET = "post-images";
@@ -71,6 +71,86 @@ function imageDimensions(file) {
   });
 }
 
+const MARKET_ET_ZONE = "America/New_York";
+
+function marketETParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: MARKET_ET_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function marketISO(year, month, day) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function marketParseISO(value) {
+  const [year, month, day] = String(value).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function marketShiftISO(value, days) {
+  const date = marketParseISO(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return marketISO(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+}
+
+function marketMondayForISO(value) {
+  const date = marketParseISO(value);
+  const day = date.getUTCDay();
+  const distance = day === 0 ? 6 : day - 1;
+  return marketShiftISO(value, -distance);
+}
+
+function activeMarketStart(segment, now = new Date()) {
+  const et = marketETParts(now);
+  const today = marketISO(Number(et.year), Number(et.month), Number(et.day));
+  const hour = Number(et.hour);
+  const minute = Number(et.minute);
+  const after1700 = hour > 17 || (hour === 17 && minute >= 0);
+
+  if (segment === "DAY") {
+    if (et.weekday === "Sat") return null;
+    if (et.weekday === "Sun") return after1700 ? marketShiftISO(today, 1) : null;
+    if (et.weekday === "Fri" && after1700) return null;
+    return after1700 ? marketShiftISO(today, 1) : today;
+  }
+
+  if (segment === "WEEK") {
+    let start = marketMondayForISO(today);
+    if (et.weekday === "Fri" && after1700) start = marketShiftISO(start, 7);
+    if (et.weekday === "Sat" || et.weekday === "Sun") start = marketShiftISO(marketMondayForISO(today), 7);
+    return start;
+  }
+
+  // MONTH/YEAR keep their current V1 navigation-provided state until their
+  // exact rollover contract is frozen.
+  return null;
+}
+
+function isArchivedMarketDiscussion(discussion) {
+  const segment = discussion.segmentType || discussion.segment_type;
+  const start = discussion.segmentStart || discussion.segment_start;
+  if (!segment || !start) return false;
+
+  const activeStart = activeMarketStart(segment);
+  if (segment === "DAY" || segment === "WEEK") {
+    // During the weekend DAY has no active coordinate, so every existing DAY
+    // discussion is historical/reply-only.
+    if (!activeStart) return segment === "DAY";
+    return start < activeStart;
+  }
+
+  return false;
+}
+
 export default function Discussion({
   discussion,
   goBack,
@@ -123,6 +203,13 @@ export default function Discussion({
 
   const isMarketSegment =
     discussion.discussionType === "MARKET_SEGMENT";
+
+  // Archived market state must be derivable inside the discussion itself.
+  // Do not rely only on the Instrument page passing marketReplyOnly: a user can
+  // arrive here from Latest Posts, notifications, a hash/deep link, etc.
+  const marketReplyOnly =
+    isMarketSegment &&
+    (Boolean(discussion.marketReplyOnly) || isArchivedMarketDiscussion(discussion));
 
   useEffect(() => {
     previewRef.current = images;
@@ -218,7 +305,8 @@ export default function Discussion({
           username,
           display_name,
           signature,
-          avatar_path
+          avatar_path,
+          post_count
         ),
         attachments (
           id,
@@ -515,6 +603,11 @@ export default function Discussion({
       setError(
         "This conversation is locked."
       );
+      return;
+    }
+
+    if (marketReplyOnly && !replyTarget) {
+      setError("This market period is archived. Reply to an existing post to continue the conversation.");
       return;
     }
 
@@ -1069,6 +1162,11 @@ export default function Discussion({
                       : "MEMBER"}
                   </span>
 
+                  <span className="post-count">
+                    {Number(post.profiles?.post_count || 0).toLocaleString()}{" "}
+                    {Number(post.profiles?.post_count || 0) === 1 ? "POST" : "POSTS"}
+                  </span>
+
                   {!post.is_deleted && post.profiles?.signature && (
                     <span className="post-signature">
                       {post.profiles.signature}
@@ -1259,13 +1357,20 @@ export default function Discussion({
           }
         >
           <div className="reply-heading">
-            <strong>{replyTarget ? `Reply to ${authorName(replyTarget)}` : "Reply to discussion"}</strong>
+            <strong>{replyTarget ? `Reply to ${authorName(replyTarget)}` : marketReplyOnly ? "Archived market discussion" : "Reply to discussion"}</strong>
 
             <span>
               Paste screenshots with Ctrl+V or drag
               them here
             </span>
           </div>
+
+          {marketReplyOnly && !replyTarget && (
+            <div className="market-archive-notice" role="status">
+              <strong>This {String(discussion.segmentType || discussion.segment_type || "market period").toLowerCase()} is archived.</strong>
+              <span>New top-level posts are closed. Replies to existing posts are still accepted — choose Reply beneath a post to continue the conversation.</span>
+            </div>
+          )}
 
           {replyTarget && (
             <div className="composer-reply-target">
@@ -1276,12 +1381,14 @@ export default function Discussion({
             </div>
           )}
 
+          {(!marketReplyOnly || replyTarget) && (
+            <>
           <textarea
             id="dwmy-reply-composer"
             value={reply}
             onChange={handleReplyChange}
-            placeholder="Write your reply or paste a screenshot..."
-            disabled={posting}
+            placeholder={marketReplyOnly && !replyTarget ? "This period is archived — choose Reply on an existing post." : "Write your reply or paste a screenshot..."}
+            disabled={posting || (marketReplyOnly && !replyTarget)}
           />
 
           {mentionSuggestions.length > 0 && (
@@ -1352,13 +1459,15 @@ export default function Discussion({
             <button
               type="submit"
               className="primary-button"
-              disabled={posting}
+              disabled={posting || (marketReplyOnly && !replyTarget)}
             >
               {posting
                 ? "Publishing..."
                 : "Post Reply"}
             </button>
           </div>
+            </>
+          )}
         </form>
       )}
     </div>
