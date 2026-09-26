@@ -13,7 +13,8 @@ export default function Header({
 }) {
   const isAdmin = user.roles?.includes("ADMIN") || user.role === "admin";
   const marketsActive =
-    page === "home" || page === "instrument" || page === "discussion";
+    page === "home" ||
+    page === "markets" || page === "instrument" || page === "discussion";
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(1);
   const [presenceConnected, setPresenceConnected] = useState(false);
@@ -331,7 +332,7 @@ export default function Header({
         <nav className="main-nav">
           <button
             className={marketsActive ? "active" : ""}
-            onClick={() => setPage("home")}
+            onClick={() => setPage("markets")}
           >
             Markets
           </button>

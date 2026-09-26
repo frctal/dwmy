@@ -88,6 +88,10 @@ function periodStatus(segment, start, activePeriod) {
 }
 
 export default function Instrument({ section, instrument, openDiscussion, goBack, user }) {
+  const [statsWindow, setStatsWindow] = useState("7D");
+  const [marketStats, setMarketStats] = useState(null);
+  const [marketStatsLoading, setMarketStatsLoading] = useState(true);
+
   const [segment, setSegment] = useState("DAY");
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
@@ -122,6 +126,33 @@ export default function Instrument({ section, instrument, openDiscussion, goBack
     loadHistory();
     return () => { alive = false; };
   }, [instrument.id, segment]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadMarketStats() {
+      setMarketStatsLoading(true);
+      const lookbackDays = statsWindow === "7D" ? 7 : statsWindow === "30D" ? 30 : 36500;
+
+      const { data, error: statsError } = await supabase.rpc("get_instrument_statistics", {
+        target_instrument_id: instrument.id,
+        lookback_days: lookbackDays,
+        trader_limit: 5,
+      });
+
+      if (!alive) return;
+      if (statsError) {
+        console.error("Instrument statistics load failed:", statsError);
+        setMarketStats(null);
+      } else {
+        setMarketStats(data || null);
+      }
+      setMarketStatsLoading(false);
+    }
+
+    loadMarketStats();
+    return () => { alive = false; };
+  }, [instrument.id, statsWindow]);
 
   function discussionPayload(discussion, title, replyOnly = false) {
     return {
@@ -213,9 +244,56 @@ export default function Instrument({ section, instrument, openDiscussion, goBack
       </nav>
 
       <div className="instrument-hero">
-        <span className="eyebrow">{section.name}</span>
-        <h1>{instrument.symbol}</h1>
-        <p>{instrument.name}</p>
+        <div className="instrument-identity">
+          <span className="eyebrow">{section.name}</span>
+          <h1>{instrument.symbol}</h1>
+          <p>{instrument.name}</p>
+        </div>
+
+        <div className="instrument-stats-panel">
+          <div className="instrument-stats-head">
+            <div>
+              <span className="eyebrow">Market Activity</span>
+              <strong>Instrument Statistics</strong>
+            </div>
+            <div className="instrument-stats-windows">
+              {["7D", "30D", "ALL"].map((windowName) => (
+                <button key={windowName} className={statsWindow === windowName ? "active" : ""} onClick={() => setStatsWindow(windowName)}>
+                  {windowName}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {marketStatsLoading ? (
+            <div className="instrument-stats-loading">Measuring activity...</div>
+          ) : marketStats ? (
+            <>
+              <div className="instrument-stat-grid">
+                <div><strong>{marketStats.contribution_count || 0}</strong><span>Contributions</span></div>
+                <div><strong>{marketStats.trader_count || 0}</strong><span>Traders</span></div>
+                <div><strong>{marketStats.discussion_count || 0}</strong><span>Discussions</span></div>
+                <div><strong>{marketStats.latest_activity_at ? new Date(marketStats.latest_activity_at).toLocaleDateString() : "—"}</strong><span>Latest</span></div>
+              </div>
+
+              <div className="instrument-resolution-stats">
+                {["DAY", "WEEK", "MONTH", "YEAR"].map((resolution) => (
+                  <div key={resolution}><span>{resolution}</span><strong>{marketStats.resolutions?.[resolution] || 0}</strong></div>
+                ))}
+              </div>
+
+              <div className="instrument-top-traders">
+                <div className="instrument-top-traders-title"><span>Top Traders</span><small>{statsWindow} CONTRIBUTIONS</small></div>
+                {(marketStats.top_traders || []).length ? marketStats.top_traders.map((trader, index) => (
+                  <div className="instrument-top-trader" key={trader.user_id}>
+                    <span><b>{index + 1}</b>{trader.display_name || trader.username}</span>
+                    <strong>{trader.contributions}</strong>
+                  </div>
+                )) : <div className="instrument-stats-empty">No contributions in this window.</div>}
+              </div>
+            </>
+          ) : <div className="instrument-stats-empty">Statistics unavailable.</div>}
+        </div>
       </div>
 
       <div className="segment-selector">

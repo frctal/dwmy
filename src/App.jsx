@@ -10,6 +10,7 @@ import AccessGate from "./pages/AccessGate";
 import Home from "./pages/Home";
 import Discussion from "./pages/Discussion";
 import Instrument from "./pages/Instrument";
+import MarketDirectory from "./pages/MarketDirectory";
 import Admin from "./pages/Admin";
 import Conversations from "./pages/Conversations";
 import Notifications from "./pages/Notifications";
@@ -544,7 +545,15 @@ export default function App() {
             openInstrument={
               openInstrument
             }
+            openDirectory={() => {
+              setPage("markets");
+              window.scrollTo(0, 0);
+            }}
           />
+        )}
+
+        {page === "markets" && (
+          <MarketDirectory openInstrument={openInstrument} />
         )}
 
         {page === "conversations" && (

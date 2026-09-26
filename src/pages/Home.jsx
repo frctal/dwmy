@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 import LiveChat from "../components/LiveChat";
@@ -10,6 +10,7 @@ export default function Home({
   user,
   openDiscussion,
   openInstrument,
+  openDirectory,
 }) {
   const [stats, setStats] = useState({
     markets: 0,
@@ -103,6 +104,7 @@ export default function Home({
 
       <MarketBrowser
         openInstrument={openInstrument}
+        openDirectory={openDirectory}
       />
 
       <div className="home-columns">
