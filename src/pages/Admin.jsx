@@ -1,20 +1,31 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-import {
-  sections as initialSections,
-  users as initialUsers,
-} from "../data/mockData";
+import { users as initialUsers } from "../data/mockData";
 
 export default function Admin() {
   const [tab, setTab] = useState("dashboard");
 
-  // Existing prototype administration.
+  // Users/Roles remain on the existing prototype path for now.
   const [users, setUsers] = useState(initialUsers);
-  const [sections, setSections] = useState(initialSections);
+
+  // Real Supabase-backed market directory administration.
+  const [sections, setSections] = useState([]);
+  const [directoryLoading, setDirectoryLoading] = useState(true);
+  const [directoryError, setDirectoryError] = useState("");
+  const [directoryMessage, setDirectoryMessage] = useState("");
+
   const [showCreate, setShowCreate] = useState(false);
   const [sectionName, setSectionName] = useState("");
+  const [sectionDescription, setSectionDescription] = useState("");
   const [hierarchyType, setHierarchyType] = useState("market");
+  const [creatingSection, setCreatingSection] = useState(false);
+
+  const [addingInstrumentTo, setAddingInstrumentTo] = useState(null);
+  const [instrumentSymbol, setInstrumentSymbol] = useState("");
+  const [instrumentName, setInstrumentName] = useState("");
+  const [instrumentDescription, setInstrumentDescription] = useState("");
+  const [creatingInstrument, setCreatingInstrument] = useState(false);
 
   // Real beta invitation administration.
   const [invites, setInvites] = useState([]);
@@ -42,33 +53,196 @@ export default function Admin() {
     );
   }
 
-  function createSection(e) {
+  function slugify(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  const loadDirectory = useCallback(async () => {
+    setDirectoryLoading(true);
+    setDirectoryError("");
+
+    const { data, error } = await supabase
+      .from("sections")
+      .select(`
+        id,
+        section_type,
+        slug,
+        name,
+        description,
+        sort_order,
+        is_active,
+        instruments (
+          id,
+          section_id,
+          symbol,
+          slug,
+          name,
+          description,
+          sort_order,
+          is_active
+        )
+      `)
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      console.error("Failed to load directory:", error);
+      setDirectoryError(error.message || "Could not load the market directory.");
+      setSections([]);
+    } else {
+      setSections(
+        (data || []).map((section) => ({
+          ...section,
+          hierarchyType: String(section.section_type || "").toLowerCase(),
+          instruments: (section.instruments || []).sort(
+            (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+          ),
+          children: [],
+        }))
+      );
+    }
+
+    setDirectoryLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadDirectory();
+  }, [loadDirectory]);
+
+  async function createSection(e) {
     e.preventDefault();
 
     const clean = sectionName.trim();
+    if (!clean || creatingSection) return;
 
-    if (!clean) return;
+    setCreatingSection(true);
+    setDirectoryError("");
+    setDirectoryMessage("");
 
-    setSections([
-      ...sections,
-      {
-        id: clean.toLowerCase().replace(/\s+/g, "-"),
-        name: clean,
-        description: "New forum section",
-        hierarchyType,
-        segmentation:
-          hierarchyType === "market"
-            ? ["day", "week", "month", "year"]
-            : undefined,
-        instruments:
-          hierarchyType === "market" ? [] : undefined,
-        children:
-          hierarchyType === "general" ? [] : undefined,
-      },
-    ]);
+    const sectionType =
+      hierarchyType === "market"
+        ? "MARKET"
+        : hierarchyType === "education"
+          ? "EDUCATION"
+          : "GENERAL";
+
+    const maxSort = sections.reduce(
+      (max, section) => Math.max(max, Number(section.sort_order) || 0),
+      0
+    );
+
+    const { error } = await supabase.rpc("admin_create_section", {
+      section_name: clean,
+      section_slug: slugify(clean),
+      section_description: sectionDescription.trim() || null,
+      section_type_value: sectionType,
+      section_sort_order: maxSort + 10,
+    });
+
+    if (error) {
+      console.error("Failed to create section:", error);
+      setDirectoryError(error.message || "Could not create section.");
+      setCreatingSection(false);
+      return;
+    }
 
     setSectionName("");
+    setSectionDescription("");
+    setHierarchyType("market");
     setShowCreate(false);
+    setCreatingSection(false);
+    setDirectoryMessage(`${clean} created in the live DWMY directory.`);
+    await loadDirectory();
+  }
+
+  async function createInstrument(e, section) {
+    e.preventDefault();
+
+    const symbol = instrumentSymbol.trim().toUpperCase();
+    const name = instrumentName.trim();
+
+    if (!symbol || !name || creatingInstrument) return;
+
+    setCreatingInstrument(true);
+    setDirectoryError("");
+    setDirectoryMessage("");
+
+    const maxSort = (section.instruments || []).reduce(
+      (max, instrument) => Math.max(max, Number(instrument.sort_order) || 0),
+      0
+    );
+
+    const { error } = await supabase.rpc("admin_create_instrument", {
+      target_section_id: section.id,
+      instrument_symbol: symbol,
+      instrument_slug: slugify(symbol.replace("/", "-")),
+      instrument_name: name,
+      instrument_description: instrumentDescription.trim() || null,
+      instrument_sort_order: maxSort + 10,
+    });
+
+    if (error) {
+      console.error("Failed to create instrument:", error);
+      setDirectoryError(error.message || "Could not create instrument.");
+      setCreatingInstrument(false);
+      return;
+    }
+
+    setInstrumentSymbol("");
+    setInstrumentName("");
+    setInstrumentDescription("");
+    setAddingInstrumentTo(null);
+    setCreatingInstrument(false);
+    setDirectoryMessage(`${symbol} added to ${section.name}.`);
+    await loadDirectory();
+  }
+
+  async function toggleSectionActive(section) {
+    setDirectoryError("");
+    setDirectoryMessage("");
+
+    const next = !section.is_active;
+    const { error } = await supabase.rpc("admin_set_section_active", {
+      target_section_id: section.id,
+      active_value: next,
+    });
+
+    if (error) {
+      console.error("Failed to update section:", error);
+      setDirectoryError(error.message || "Could not update section.");
+      return;
+    }
+
+    setDirectoryMessage(
+      `${section.name} is now ${next ? "active" : "inactive"}.`
+    );
+    await loadDirectory();
+  }
+
+  async function toggleInstrumentActive(instrument) {
+    setDirectoryError("");
+    setDirectoryMessage("");
+
+    const next = !instrument.is_active;
+    const { error } = await supabase.rpc("admin_set_instrument_active", {
+      target_instrument_id: instrument.id,
+      active_value: next,
+    });
+
+    if (error) {
+      console.error("Failed to update instrument:", error);
+      setDirectoryError(error.message || "Could not update instrument.");
+      return;
+    }
+
+    setDirectoryMessage(
+      `${instrument.symbol} is now ${next ? "active" : "inactive"}.`
+    );
+    await loadDirectory();
   }
 
   const loadInvites = useCallback(async () => {
@@ -623,7 +797,17 @@ export default function Admin() {
                   >
                     <option value="market">Market</option>
                     <option value="general">General</option>
+                    <option value="education">Education</option>
                   </select>
+                </label>
+
+                <label>
+                  Description
+                  <input
+                    value={sectionDescription}
+                    onChange={(e) => setSectionDescription(e.target.value)}
+                    placeholder="Optional section description"
+                  />
                 </label>
 
                 {hierarchyType === "market" && (
@@ -644,68 +828,164 @@ export default function Admin() {
                     Cancel
                   </button>
 
-                  <button className="primary-button" type="submit">
-                    Create
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={creatingSection}
+                  >
+                    {creatingSection ? "Creating..." : "Create"}
                   </button>
                 </div>
               </form>
             )}
 
-            <div className="hierarchy-list">
-              {sections.map((section) => (
-                <section className="hierarchy-card" key={section.id}>
-                  <div className="hierarchy-heading">
-                    <div>
-                      <span className="type-label">
-                        {section.hierarchyType.toUpperCase()}
-                      </span>
+            {directoryError && (
+              <div className="invite-message invite-message-error">
+                {directoryError}
+              </div>
+            )}
 
-                      <h2>{section.name}</h2>
-                    </div>
+            {directoryMessage && (
+              <div className="invite-message">{directoryMessage}</div>
+            )}
 
-                    <button>Manage</button>
-                  </div>
-
-                  {section.hierarchyType === "market" ? (
-                    <>
-                      <div className="segmentation-line">
-                        DAY / WEEK / MONTH / YEAR
+            {directoryLoading ? (
+              <div className="market-directory-state">
+                Loading live DWMY directory...
+              </div>
+            ) : (
+              <div className="hierarchy-list">
+                {sections.map((section) => (
+                  <section className="hierarchy-card" key={section.id}>
+                    <div className="hierarchy-heading">
+                      <div>
+                        <span className="type-label">
+                          {section.section_type}
+                        </span>
+                        <h2>{section.name}</h2>
+                        <small>
+                          {section.is_active ? "ACTIVE" : "INACTIVE"}
+                        </small>
                       </div>
 
-                      {(section.instruments || []).map((instrument) => (
-                        <div
-                          className="hierarchy-child"
-                          key={instrument.id}
-                        >
-                          <strong>{instrument.symbol}</strong>
-                          <span>{instrument.name}</span>
-                        </div>
-                      ))}
-
-                      <button className="add-child">
-                        + Add instrument
+                      <button onClick={() => toggleSectionActive(section)}>
+                        {section.is_active ? "Deactivate" : "Activate"}
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      {(section.children || []).map((child) => (
-                        <div
-                          className="hierarchy-child"
-                          key={child.id}
-                        >
-                          <strong>{child.name}</strong>
-                          <span>{child.description}</span>
-                        </div>
-                      ))}
+                    </div>
 
-                      <button className="add-child">
-                        + Add subsection
-                      </button>
-                    </>
-                  )}
-                </section>
-              ))}
-            </div>
+                    {section.description && <p>{section.description}</p>}
+
+                    {section.section_type === "MARKET" ? (
+                      <>
+                        <div className="segmentation-line">
+                          DAY / WEEK / MONTH / YEAR
+                        </div>
+
+                        {(section.instruments || []).map((instrument) => (
+                          <div
+                            className="hierarchy-child"
+                            key={instrument.id}
+                          >
+                            <span>
+                              <strong>{instrument.symbol}</strong>
+                              <span>{instrument.name}</span>
+                            </span>
+
+                            <button
+                              onClick={() => toggleInstrumentActive(instrument)}
+                            >
+                              {instrument.is_active ? "Deactivate" : "Activate"}
+                            </button>
+                          </div>
+                        ))}
+
+                        {addingInstrumentTo === section.id ? (
+                          <form
+                            className="create-section"
+                            onSubmit={(e) => createInstrument(e, section)}
+                          >
+                            <label>
+                              Symbol
+                              <input
+                                value={instrumentSymbol}
+                                onChange={(e) =>
+                                  setInstrumentSymbol(e.target.value)
+                                }
+                                placeholder="e.g. XAU/USD"
+                              />
+                            </label>
+
+                            <label>
+                              Name
+                              <input
+                                value={instrumentName}
+                                onChange={(e) =>
+                                  setInstrumentName(e.target.value)
+                                }
+                                placeholder="e.g. Gold / U.S. Dollar"
+                              />
+                            </label>
+
+                            <label>
+                              Description
+                              <input
+                                value={instrumentDescription}
+                                onChange={(e) =>
+                                  setInstrumentDescription(e.target.value)
+                                }
+                                placeholder="Optional"
+                              />
+                            </label>
+
+                            <div className="form-actions">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddingInstrumentTo(null);
+                                  setInstrumentSymbol("");
+                                  setInstrumentName("");
+                                  setInstrumentDescription("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+
+                              <button
+                                className="primary-button"
+                                type="submit"
+                                disabled={creatingInstrument}
+                              >
+                                {creatingInstrument
+                                  ? "Adding..."
+                                  : "Add Instrument"}
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <button
+                            className="add-child"
+                            onClick={() => {
+                              setAddingInstrumentTo(section.id);
+                              setInstrumentSymbol("");
+                              setInstrumentName("");
+                              setInstrumentDescription("");
+                            }}
+                          >
+                            + Add instrument
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="segmentation-line">
+                        {section.section_type === "EDUCATION"
+                          ? "EDUCATION HIERARCHY RESERVED"
+                          : "GENERAL HIERARCHY"}
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+            )}
           </>
         )}
 
