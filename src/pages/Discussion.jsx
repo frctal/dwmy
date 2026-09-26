@@ -162,6 +162,7 @@ export default function Discussion({
   goBack,
   user,
   onMessageUser,
+  onOpenConversations,
 }) {
   const [posts, setPosts] = useState([]);
   const [reply, setReply] = useState("");
@@ -1057,7 +1058,13 @@ export default function Discussion({
       {isConversation && (
         <>
           <div className="breadcrumb">
-            <span>Conversations</span>
+            <button
+              type="button"
+              className="dwmy-text-button"
+              onClick={onOpenConversations}
+            >
+              Conversations
+            </button>
             <span>&gt;</span>
             <span>{conversationTitle}</span>
           </div>

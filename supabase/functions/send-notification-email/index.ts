@@ -31,14 +31,14 @@ Deno.serve(async (req) => {
 
     const { data: n, error: nError } = await supabase
       .from("notifications")
-      .select("id,recipient_user_id,actor_user_id,notification_type,discussion_id,post_id,message_conversation_id,message_id,created_at")
+      .select("id,recipient_user_id,actor_user_id,notification_type,discussion_id,post_id,message_conversation_id,message_id,community_invitation_id,created_at")
       .eq("id", notificationId)
       .single();
 
     if (nError || !n) return new Response("Notification not found", { status: 404 });
 
     const type = String(n.notification_type || "").toUpperCase();
-    if (!["REPLY", "MENTION", "DIRECT_MESSAGE"].includes(type)) {
+    if (!["REPLY", "MENTION", "DIRECT_MESSAGE", "COMMUNITY_INVITATION"].includes(type)) {
       return new Response("Ignored", { status: 200 });
     }
 
@@ -73,6 +73,25 @@ Deno.serve(async (req) => {
       actorName = actor?.display_name || actor?.username || actorName;
     }
 
+    let communityName = "a Community";
+    if (type === "COMMUNITY_INVITATION" && n.community_invitation_id) {
+      const { data: invitation } = await supabase
+        .from("community_invitations")
+        .select("community_id")
+        .eq("id", n.community_invitation_id)
+        .maybeSingle();
+
+      if (invitation?.community_id) {
+        const { data: community } = await supabase
+          .from("communities")
+          .select("name")
+          .eq("id", invitation.community_id)
+          .maybeSingle();
+
+        if (community?.name) communityName = community.name;
+      }
+    }
+
     let subject = "New DWMY notification";
     let heading = "You have a new notification on DWMY.";
     if (type === "REPLY") {
@@ -84,6 +103,9 @@ Deno.serve(async (req) => {
     } else if (type === "DIRECT_MESSAGE") {
       subject = `DWMY - New message from ${actorName}`;
       heading = `${actorName} sent you a direct message.`;
+    } else if (type === "COMMUNITY_INVITATION") {
+      subject = `DWMY - ${actorName} invited you to ${communityName}`;
+      heading = `${actorName} invited you to join ${communityName}.`;
     }
 
     let detail = "";
@@ -95,7 +117,10 @@ Deno.serve(async (req) => {
       if (dm?.body) detail = dm.body.replace(/\s+/g, " ").trim().slice(0, 180);
     }
 
-    const appUrl = "https://dwmy.pro/";
+    const appUrl =
+      type === "COMMUNITY_INVITATION"
+        ? "https://dwmy.pro/?view=communities"
+        : "https://dwmy.pro/";
     const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:28px;color:#111827">
       <div style="font-size:28px;font-weight:800">DWMY</div>
       <div style="font-size:12px;color:#6b7280;margin-bottom:28px">a FRCTAL company</div>

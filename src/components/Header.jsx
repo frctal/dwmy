@@ -15,6 +15,7 @@ export default function Header({
   const marketsActive =
     page === "home" ||
     page === "markets" || page === "instrument" || page === "discussion";
+  const communitiesActive = page === "communities";
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(1);
   const [presenceConnected, setPresenceConnected] = useState(false);
@@ -341,6 +342,12 @@ export default function Header({
             onClick={() => setPage("conversations")}
           >
             Conversations
+          </button>
+          <button
+            className={communitiesActive ? "active" : ""}
+            onClick={() => setPage("communities")}
+          >
+            Communities
           </button>
         </nav>
 

@@ -13,6 +13,7 @@ import Instrument from "./pages/Instrument";
 import MarketDirectory from "./pages/MarketDirectory";
 import Admin from "./pages/Admin";
 import Conversations from "./pages/Conversations";
+import Communities from "./pages/Communities";
 import Notifications from "./pages/Notifications";
 import Messages from "./pages/Messages";
 import Settings from "./pages/Settings";
@@ -31,6 +32,7 @@ export default function App() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [selectedMessageConversation, setSelectedMessageConversation] = useState(null);
   const [selectedModerationIncident, setSelectedModerationIncident] = useState(null);
+  const [communityReturnContext, setCommunityReturnContext] = useState(null);
 
   const [
     selectedDiscussion,
@@ -294,6 +296,7 @@ export default function App() {
   async function loadDiscussionById(discussionId) {
     const { data, error } = await supabase.from("discussions").select(`
       id, discussion_type, section_id, instrument_id, segment_type, segment_start, segment_end, title, is_locked, reply_count, last_activity_at,
+      community_id, community_category_id,
       sections(name), instruments(symbol,name)
     `).eq("id", discussionId).single();
     if (error) { console.error("Deep-link discussion load failed:", error); return null; }
@@ -301,6 +304,7 @@ export default function App() {
       id: data.id, discussionType: data.discussion_type, sectionId: data.section_id, section: data.sections?.name || "Market",
       instrumentId: data.instrument_id, instrument: data.instruments?.symbol || data.title || "Discussion", instrumentName: data.instruments?.name || "",
       segmentType: data.segment_type, segmentStart: data.segment_start, segmentEnd: data.segment_end,
+      communityId: data.community_id, communityCategoryId: data.community_category_id,
       title: data.title || `${data.instruments?.symbol || "Market"} - ${data.segment_start || "Discussion"}`,
       locked: data.is_locked || false, replies: data.reply_count || 0, lastActivityAt: data.last_activity_at,
     };
@@ -446,7 +450,21 @@ export default function App() {
     }
   }
 
+  function openCommunityDiscussion(discussion, returnContext) {
+    setSelectedDiscussion(discussion);
+    setCommunityReturnContext(returnContext || null);
+    setPage("discussion");
+
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}`
+    );
+    window.scrollTo(0, 0);
+  }
+
   function openDiscussion(discussion) {
+    setCommunityReturnContext(null);
     setSelectedDiscussion(discussion);
     setPage("discussion");
 
@@ -576,6 +594,16 @@ export default function App() {
           />
         )}
 
+
+        {page === "communities" && (
+          <Communities
+            user={user}
+            openDiscussion={openCommunityDiscussion}
+            returnContext={communityReturnContext}
+            onReturnContextConsumed={() => setCommunityReturnContext(null)}
+          />
+        )}
+
         {page === "instrument" &&
           selectedInstrument && (
             <Instrument
@@ -604,11 +632,22 @@ export default function App() {
               }
               user={user}
               entitlements={entitlements}
-              goBack={() =>
-                selectedInstrument
-                  ? setPage("instrument")
-                  : setPage("home")
-              }
+              goBack={() => {
+                if (selectedDiscussion?.discussionType === "COMMUNITY") {
+                  setPage("communities");
+                  return;
+                }
+                if (selectedDiscussion?.discussionType === "CONVERSATION") {
+                  setPage("conversations");
+                  return;
+                }
+                if (selectedInstrument) {
+                  setPage("instrument");
+                  return;
+                }
+                setPage("home");
+              }}
+              onOpenConversations={() => setPage("conversations")}
               onMessageUser={messageUser}
             />
           )}
@@ -618,6 +657,17 @@ export default function App() {
             onOpenPost={openNotificationPost}
             onOpenMessage={openNotificationMessage}
             onOpenModeration={openNotificationModeration}
+            onOpenCommunities={() => {
+              setCommunityReturnContext(null);
+              setPage("communities");
+              window.history.replaceState(
+                null,
+                "",
+                `${window.location.pathname}${window.location.search}`
+              );
+              window.scrollTo(0, 0);
+              loadActivityCounts(true);
+            }}
             onChanged={() => loadActivityCounts(true)}
           />
         )}

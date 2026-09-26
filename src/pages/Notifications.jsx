@@ -12,6 +12,7 @@ function label(n) {
   if (n.notification_type === "MENTION") return `${who} mentioned you`;
   if (n.notification_type === "REACTION") return `${who} liked your post`;
   if (n.notification_type === "DIRECT_MESSAGE") return `${who} sent you a message`;
+  if (n.notification_type === "COMMUNITY_INVITATION") return `${who} invited you to a Community`;
 
   if (n.notification_type === "MODERATION_INCIDENT") {
     return "New moderation case requires review";
@@ -42,6 +43,7 @@ export default function Notifications({
   onOpenPost,
   onOpenMessage,
   onOpenModeration,
+  onOpenCommunities,
   onChanged,
 }) {
   const [tab, setTab] = useState("active");
@@ -63,6 +65,7 @@ export default function Notifications({
         message_conversation_id,
         message_id,
         moderation_incident_id,
+        community_invitation_id,
         is_read,
         created_at,
         read_at,
@@ -112,6 +115,15 @@ export default function Notifications({
       onOpenModeration
     ) {
       onOpenModeration(n.moderation_incident_id);
+      return;
+    }
+
+    if (
+      n.notification_type === "COMMUNITY_INVITATION" &&
+      n.community_invitation_id &&
+      onOpenCommunities
+    ) {
+      onOpenCommunities();
       return;
     }
 
