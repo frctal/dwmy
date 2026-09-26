@@ -41,9 +41,16 @@ function displayName(profile) {
   );
 }
 
-export default function LiveChat({ user }) {
+function previewMessage(item) {
+  if (!item) return "";
+  const clean = (item.message || "").replace(/\s+/g, " ").trim();
+  return clean.length > 110 ? `${clean.slice(0, 107)}...` : clean;
+}
+
+export default function LiveChat({ user, onMessageUser }) {
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
+  const [replyTarget, setReplyTarget] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -183,7 +190,7 @@ export default function LiveChat({ user }) {
         .insert({
           user_id: user.id,
           message: clean,
-          reply_to_id: null,
+          reply_to_id: replyTarget?.id || null,
         })
         .select(`
           id,
@@ -223,6 +230,7 @@ export default function LiveChat({ user }) {
     });
 
     setMessage("");
+    setReplyTarget(null);
     setSending(false);
 
     scrollToBottom();
@@ -272,10 +280,28 @@ export default function LiveChat({ user }) {
               item.profiles
             );
 
+            const parent = item.reply_to_id
+              ? messages.find((candidate) => candidate.id === item.reply_to_id)
+              : null;
+
             return (
               <div
-                className="chat-row"
+                className={`chat-row ${replyTarget?.id === item.id ? "reply-selected" : ""}`}
                 key={item.id}
+                role="button"
+                tabIndex={0}
+                title={`Reply to ${name}`}
+                onClick={() => {
+                  setReplyTarget(item);
+                  document.getElementById("dwmy-live-chat-input")?.focus();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setReplyTarget(item);
+                    document.getElementById("dwmy-live-chat-input")?.focus();
+                  }
+                }}
               >
                 <div className="mini-avatar">
                   {name[0]?.toUpperCase() || "D"}
@@ -283,12 +309,38 @@ export default function LiveChat({ user }) {
 
                 <div className="chat-content">
                   <div>
-                    <strong>{name}</strong>
+                    <button
+                      type="button"
+                      className="chat-user-link"
+                      disabled={item.user_id === user.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (item.user_id !== user.id) {
+                          onMessageUser?.(item.profiles);
+                        }
+                      }}
+                      title={
+                        item.user_id === user.id
+                          ? "This is you"
+                          : `Message @${item.profiles?.username || name}`
+                      }
+                    >
+                      {name}
+                    </button>
 
                     <span>
                       {formatTime(item.created_at)}
                     </span>
                   </div>
+
+                  {parent && (
+                    <div className="chat-reply-context">
+                      <strong>
+                        ↳ {displayName(parent.profiles)}
+                      </strong>
+                      <span>{previewMessage(parent)}</span>
+                    </div>
+                  )}
 
                   <p>{item.message}</p>
                 </div>
@@ -301,7 +353,22 @@ export default function LiveChat({ user }) {
         className="chat-compose"
         onSubmit={sendMessage}
       >
+        {replyTarget && (
+          <div className="chat-compose-reply">
+            <span>
+              Replying to {displayName(replyTarget.profiles)} · “{previewMessage(replyTarget)}”
+            </span>
+            <button
+              type="button"
+              onClick={() => setReplyTarget(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         <input
+          id="dwmy-live-chat-input"
           value={message}
           onChange={(event) =>
             setMessage(event.target.value)

@@ -31,3 +31,7 @@ build-forum-v01.ps1
 upgrade-v02.ps1
 upgrade-v03a-auth.ps1
 upgrade-v03b-real-markets.ps1
+
+backup-v07-*/
+*handoff.zip
+*social-frontend.zip

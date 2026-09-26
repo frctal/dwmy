@@ -93,6 +93,7 @@ export default function LatestPosts({
         .from("posts")
         .select(`
           id,
+          public_ref,
           body,
           author_id,
           is_deleted,
@@ -218,9 +219,22 @@ export default function LatestPosts({
               <button
                 className="latest-post"
                 key={post.id}
-                onClick={() =>
-                  openDiscussion(discussion)
-                }
+                onClick={() => {
+                  openDiscussion(discussion);
+                  if (post.public_ref) {
+                    window.location.hash = post.public_ref;
+                    setTimeout(
+                      () =>
+                        document
+                          .getElementById(post.public_ref)
+                          ?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          }),
+                      250
+                    );
+                  }
+                }}
               >
                 <div className="mini-avatar">
                   {author[0]?.toUpperCase() || "D"}

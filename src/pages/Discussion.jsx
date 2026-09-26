@@ -3,6 +3,12 @@ import { supabase } from "../lib/supabaseClient";
 
 const IMAGE_BUCKET = "post-images";
 
+function normalizeMessageSpacing(value = "") {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 function makeImageRecord(file) {
   return {
     id: crypto.randomUUID(),
@@ -69,9 +75,14 @@ export default function Discussion({
   discussion,
   goBack,
   user,
+  onMessageUser,
 }) {
   const [posts, setPosts] = useState([]);
   const [reply, setReply] = useState("");
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [mentionQuery, setMentionQuery] = useState(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
+  const [reactions, setReactions] = useState({});
   const [images, setImages] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -175,8 +186,10 @@ export default function Discussion({
       .from("posts")
       .select(`
         id,
+        public_ref,
         discussion_id,
         author_id,
+        reply_to_id,
         body,
         is_edited,
         is_deleted,
@@ -213,7 +226,116 @@ export default function Discussion({
       );
     }
 
+    if (!error) {
+      await loadReactions(data || []);
+    }
+
     setLoading(false);
+  }
+
+  async function loadReactions(rows) {
+    const ids = (rows || []).map((row) => row.id);
+    if (!ids.length) { setReactions({}); return; }
+    const { data, error } = await supabase
+      .from("post_reactions")
+      .select("post_id, user_id, reaction_type")
+      .in("post_id", ids)
+      .eq("reaction_type", "LIKE");
+    if (error) { console.error("Reaction load failed:", error); return; }
+    const next = {};
+    ids.forEach((id) => { next[id] = { count: 0, liked: false }; });
+    (data || []).forEach((row) => {
+      next[row.post_id] ||= { count: 0, liked: false };
+      next[row.post_id].count += 1;
+      if (row.user_id === user.id) next[row.post_id].liked = true;
+    });
+    setReactions(next);
+  }
+
+  async function toggleLike(post) {
+    const state = reactions[post.id] || { count: 0, liked: false };
+    setError("");
+    if (state.liked) {
+      const { error } = await supabase.from("post_reactions").delete()
+        .eq("post_id", post.id).eq("user_id", user.id).eq("reaction_type", "LIKE");
+      if (error) { setError(error.message); return; }
+    } else {
+      const { error } = await supabase.from("post_reactions").insert({
+        post_id: post.id, user_id: user.id, reaction_type: "LIKE"
+      });
+      if (error) { setError(error.message); return; }
+    }
+    await loadReactions(posts);
+  }
+
+  function beginReply(post) {
+    setReplyTarget(post);
+    const username = post.profiles?.username;
+    if (username && !reply.trim()) setReply(`@${username} `);
+    setTimeout(() => document.getElementById("dwmy-reply-composer")?.focus(), 0);
+  }
+
+  function threadProfiles() {
+    const seen = new Map();
+
+    posts.forEach((post) => {
+      const profile = post.profiles;
+      if (profile?.id && profile?.username && profile.id !== user.id) {
+        seen.set(profile.id, profile);
+      }
+    });
+
+    return Array.from(seen.values()).sort((a, b) =>
+      a.username.localeCompare(b.username)
+    );
+  }
+
+  function updateMentionSuggestions(value, cursorPosition = value.length) {
+    const beforeCursor = value.slice(0, cursorPosition);
+    const match = beforeCursor.match(/(?:^|\s)@([A-Za-z0-9_]*)$/);
+
+    if (!match) {
+      setMentionQuery(null);
+      setMentionSuggestions([]);
+      return;
+    }
+
+    const query = match[1].toLowerCase();
+    const matches = threadProfiles()
+      .filter((profile) =>
+        profile.username.toLowerCase().startsWith(query)
+      )
+      .slice(0, 8);
+
+    setMentionQuery({
+      start: beforeCursor.lastIndexOf("@"),
+      end: cursorPosition,
+    });
+    setMentionSuggestions(matches);
+  }
+
+  function handleReplyChange(event) {
+    const value = normalizeMessageSpacing(event.target.value);
+    setReply(value);
+    updateMentionSuggestions(value, event.target.selectionStart);
+  }
+
+  function chooseMention(profile) {
+    if (!mentionQuery) return;
+
+    const next =
+      reply.slice(0, mentionQuery.start) +
+      `@${profile.username} ` +
+      reply.slice(mentionQuery.end);
+
+    setReply(next);
+    setMentionQuery(null);
+    setMentionSuggestions([]);
+
+    setTimeout(() => {
+      const composer = document.getElementById("dwmy-reply-composer");
+      composer?.focus();
+    }, 0);
   }
 
   async function loadConversationState() {
@@ -259,6 +381,26 @@ export default function Discussion({
     loadPosts();
     loadConversationState();
   }, [discussion.id]);
+
+  useEffect(() => {
+    if (loading || posts.length === 0) return;
+
+    const targetRef = decodeURIComponent(
+      window.location.hash.replace(/^#/, "")
+    );
+
+    if (!targetRef?.toUpperCase().startsWith("FRCTAL-")) return;
+
+    requestAnimationFrame(() => {
+      const target = document.getElementById(targetRef);
+      if (!target) return;
+
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+  }, [loading, posts]);
 
   function addFiles(files) {
     const valid = Array.from(files).filter(
@@ -356,7 +498,7 @@ export default function Discussion({
       return;
     }
 
-    const body = reply.trim();
+    const body = normalizeMessageSpacing(reply).trim();
 
     if (!body && images.length === 0) return;
 
@@ -371,6 +513,7 @@ export default function Discussion({
             discussion_id: discussion.id,
             author_id: user.id,
             body: body || null,
+            reply_to_id: replyTarget?.id || null,
           })
           .select("id")
           .single();
@@ -386,6 +529,7 @@ export default function Discussion({
       );
 
       setReply("");
+      setReplyTarget(null);
       setImages([]);
 
       await loadPosts();
@@ -413,7 +557,7 @@ export default function Discussion({
   }
 
   async function saveEdit(post) {
-    const clean = editBody.trim();
+    const clean = normalizeMessageSpacing(editBody).trim();
 
     if (
       !clean &&
@@ -568,6 +712,42 @@ export default function Discussion({
       post.profiles?.username ||
       "DWMY User"
     );
+  }
+
+  function publicRef(post) {
+    return post?.public_ref || `FRCTAL-${String(post?.id || 0).padStart(6, "0")}`;
+  }
+
+  function replyParent(post) {
+    if (!post?.reply_to_id) return null;
+    return posts.find((candidate) => candidate.id === post.reply_to_id) || null;
+  }
+
+  function replyPreview(post) {
+    if (!post) return "Original post";
+    if (post.is_deleted) return "This post was removed.";
+
+    const clean = (post.body || "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (clean) {
+      return clean.length > 160 ? `${clean.slice(0, 157)}...` : clean;
+    }
+
+    if (post.attachments?.length) return "Image attachment";
+    return "Original post";
+  }
+
+  function jumpToPost(post) {
+    if (!post) return;
+
+    const ref = publicRef(post);
+    window.history.replaceState(null, "", `#${ref}`);
+
+    document
+      .getElementById(ref)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   return (
@@ -818,9 +998,13 @@ export default function Discussion({
             const owns =
               post.author_id === user.id;
 
+            const parent = replyParent(post);
+            const ref = publicRef(post);
+
             return (
               <article
-                className="post-card"
+                className={`post-card ${window.location.hash.toUpperCase() === `#${ref}`.toUpperCase() ? "post-targeted" : ""}`}
+                id={ref}
                 key={post.id}
               >
                 <aside className="post-author">
@@ -828,7 +1012,22 @@ export default function Discussion({
                     {name[0]?.toUpperCase() || "D"}
                   </div>
 
-                  <strong>{name}</strong>
+                  <button
+                    type="button"
+                    className="user-link"
+                    onClick={() =>
+                      post.author_id !== user.id &&
+                      onMessageUser?.(post.profiles)
+                    }
+                    disabled={post.author_id === user.id}
+                    title={
+                      post.author_id === user.id
+                        ? "This is you"
+                        : `Message @${post.profiles?.username || name}`
+                    }
+                  >
+                    {name}
+                  </button>
 
                   <span>
                     {owns
@@ -847,6 +1046,15 @@ export default function Discussion({
                       {post.is_edited &&
                         !post.is_deleted &&
                         " (edited)"}
+
+                      <button
+                        type="button"
+                        className="post-public-ref"
+                        onClick={() => jumpToPost(post)}
+                        title={`Link to ${ref}`}
+                      >
+                        {ref}
+                      </button>
                     </span>
 
                     {!post.is_deleted && (
@@ -863,15 +1071,13 @@ export default function Discussion({
                           </button>
                         )}
 
-                        {owns && (
+                        {(owns || isAdmin) && (
                           <button
                             type="button"
                             className="dwmy-text-button"
-                            onClick={() =>
-                              removePost(post)
-                            }
+                            onClick={() => removePost(post)}
                           >
-                            Remove
+                            {owns ? "Remove" : "Moderate / Remove"}
                           </button>
                         )}
 
@@ -879,6 +1085,23 @@ export default function Discussion({
                       </div>
                     )}
                   </div>
+
+                  {post.reply_to_id && !post.is_deleted && (
+                    <button
+                      type="button"
+                      className="reply-context reply-context-rich"
+                      onClick={() => parent && jumpToPost(parent)}
+                      disabled={!parent}
+                    >
+                      <span className="reply-context-meta">
+                        ↳ Replying to {parent ? authorName(parent) : "original post"}
+                        {parent ? ` · ${publicRef(parent)}` : ""}
+                      </span>
+                      <span className="reply-context-preview">
+                        “{replyPreview(parent)}”
+                      </span>
+                    </button>
+                  )}
 
                   {post.is_deleted ? (
                     <p>
@@ -892,7 +1115,7 @@ export default function Discussion({
                         value={editBody}
                         onChange={(event) =>
                           setEditBody(
-                            event.target.value
+                            normalizeMessageSpacing(event.target.value)
                           )
                         }
                         autoFocus
@@ -948,6 +1171,15 @@ export default function Discussion({
                       )}
                     </>
                   )}
+
+                  {!post.is_deleted && editingId !== post.id && (
+                    <div className="post-social-actions">
+                      <button type="button" className={reactions[post.id]?.liked ? "social-button active" : "social-button"} onClick={() => toggleLike(post)}>
+                        Like{reactions[post.id]?.count ? ` ${reactions[post.id].count}` : ""}
+                      </button>
+                      <button type="button" className="social-button" onClick={() => beginReply(post)}>Reply</button>
+                    </div>
+                  )}
                 </div>
               </article>
             );
@@ -987,7 +1219,7 @@ export default function Discussion({
           }
         >
           <div className="reply-heading">
-            <strong>Reply to discussion</strong>
+            <strong>{replyTarget ? `Reply to ${authorName(replyTarget)}` : "Reply to discussion"}</strong>
 
             <span>
               Paste screenshots with Ctrl+V or drag
@@ -995,14 +1227,40 @@ export default function Discussion({
             </span>
           </div>
 
+          {replyTarget && (
+            <div className="composer-reply-target">
+              <span>
+                Replying to {authorName(replyTarget)} · {publicRef(replyTarget)}
+              </span>
+              <button type="button" onClick={() => setReplyTarget(null)}>Cancel</button>
+            </div>
+          )}
+
           <textarea
+            id="dwmy-reply-composer"
             value={reply}
-            onChange={(event) =>
-              setReply(event.target.value)
-            }
+            onChange={handleReplyChange}
             placeholder="Write your reply or paste a screenshot..."
             disabled={posting}
           />
+
+          {mentionSuggestions.length > 0 && (
+            <div className="mention-suggestions">
+              {mentionSuggestions.map((profile) => (
+                <button
+                  type="button"
+                  key={profile.id}
+                  onClick={() => chooseMention(profile)}
+                >
+                  <strong>@{profile.username}</strong>
+                  {profile.display_name &&
+                    profile.display_name !== profile.username && (
+                      <span>{profile.display_name}</span>
+                    )}
+                </button>
+              ))}
+            </div>
+          )}
 
           {images.length > 0 && (
             <div className="image-preview-grid">

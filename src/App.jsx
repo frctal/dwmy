@@ -12,6 +12,8 @@ import Discussion from "./pages/Discussion";
 import Instrument from "./pages/Instrument";
 import Admin from "./pages/Admin";
 import Conversations from "./pages/Conversations";
+import Notifications from "./pages/Notifications";
+import Messages from "./pages/Messages";
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -23,6 +25,9 @@ export default function App() {
   const [entitlements, setEntitlements] = useState([]);
 
   const [page, setPage] = useState("home");
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [selectedMessageConversation, setSelectedMessageConversation] = useState(null);
 
   const [
     selectedDiscussion,
@@ -55,6 +60,7 @@ export default function App() {
         if (currentSession?.user) {
           await loadIdentity(currentSession.user, alive);
           await loadAccess(alive, true);
+          await loadActivityCounts(alive);
         } else {
           setUser(null);
           setEntitlements([]);
@@ -99,6 +105,7 @@ export default function App() {
         ) {
           await loadIdentity(nextSession.user, alive);
           await loadAccess(alive, false);
+          await loadActivityCounts(alive);
         }
       }
     );
@@ -108,6 +115,16 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (page !== "discussion" && page !== "messages" && window.location.hash) {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`
+      );
+    }
+  }, [page]);
 
   async function loadIdentity(authUser, alive = true) {
     const {
@@ -261,6 +278,90 @@ export default function App() {
     return grantedEntitlements;
   }
 
+  async function loadActivityCounts(alive = true) {
+    const [{ count: notificationCount, error: notificationError }, { count: messageCount, error: messageError }] = await Promise.all([
+      supabase.from("notifications").select("id", { count: "exact", head: true }).is("archived_at", null),
+      supabase.from("notifications").select("id", { count: "exact", head: true }).eq("notification_type", "DIRECT_MESSAGE").is("archived_at", null),
+    ]);
+    if (!alive) return;
+    if (!notificationError) setUnreadNotifications(notificationCount || 0);
+    if (!messageError) setUnreadMessages(messageCount || 0);
+  }
+
+  async function loadDiscussionById(discussionId) {
+    const { data, error } = await supabase.from("discussions").select(`
+      id, discussion_type, section_id, instrument_id, segment_type, segment_start, segment_end, title, is_locked, reply_count, last_activity_at,
+      sections(name), instruments(symbol,name)
+    `).eq("id", discussionId).single();
+    if (error) { console.error("Deep-link discussion load failed:", error); return null; }
+    return {
+      id: data.id, discussionType: data.discussion_type, sectionId: data.section_id, section: data.sections?.name || "Market",
+      instrumentId: data.instrument_id, instrument: data.instruments?.symbol || data.title || "Discussion", instrumentName: data.instruments?.name || "",
+      segmentType: data.segment_type, segmentStart: data.segment_start, segmentEnd: data.segment_end,
+      title: data.title || `${data.instruments?.symbol || "Market"} - ${data.segment_start || "Discussion"}`,
+      locked: data.is_locked || false, replies: data.reply_count || 0, lastActivityAt: data.last_activity_at,
+    };
+  }
+
+  async function openNotificationPost(discussionId, postId) {
+    const target = await loadDiscussionById(discussionId);
+    if (!target) return;
+
+    let publicRef = null;
+
+    if (postId) {
+      const { data, error } = await supabase
+        .from("posts")
+        .select("public_ref")
+        .eq("id", postId)
+        .maybeSingle();
+
+      if (!error) publicRef = data?.public_ref || null;
+    }
+
+    setSelectedDiscussion(target);
+    setPage("discussion");
+    window.location.hash = publicRef || "";
+
+    if (publicRef) {
+      setTimeout(
+        () =>
+          document
+            .getElementById(publicRef)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+        250
+      );
+    }
+
+    loadActivityCounts(true);
+  }
+
+  async function messageUser(profile) {
+    if (!profile?.id || profile.id === user?.id) return;
+
+    const { data, error } = await supabase.rpc(
+      "start_direct_conversation",
+      { target_user_id: profile.id }
+    );
+
+    if (error) {
+      console.error("Unable to start direct conversation:", error);
+      return;
+    }
+
+    setSelectedMessageConversation(data);
+    setPage("messages");
+    window.location.hash = "";
+    window.scrollTo(0, 0);
+  }
+
+  function openNotificationMessage(conversationId, messageId) {
+    setSelectedMessageConversation(conversationId); setPage("messages");
+    window.location.hash = messageId ? `message-${messageId}` : "";
+    setTimeout(() => document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 250);
+    loadActivityCounts(true);
+  }
+
   async function handleAccessGranted() {
     await loadAccess(true, false);
 
@@ -290,6 +391,11 @@ export default function App() {
     setSelectedDiscussion(discussion);
     setPage("discussion");
 
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}`
+    );
     window.scrollTo(0, 0);
   }
 
@@ -342,6 +448,8 @@ export default function App() {
           handleAccessGranted
         }
         onLogout={logout}
+        unreadNotifications={unreadNotifications}
+        unreadMessages={unreadMessages}
       />
     );
   }
@@ -357,6 +465,8 @@ export default function App() {
         setPage={setPage}
         user={user}
         onLogout={logout}
+        unreadNotifications={unreadNotifications}
+        unreadMessages={unreadMessages}
       />
 
       <main
@@ -422,8 +532,25 @@ export default function App() {
                   ? setPage("instrument")
                   : setPage("home")
               }
+              onMessageUser={messageUser}
             />
           )}
+
+        {page === "notifications" && (
+          <Notifications
+            onOpenPost={openNotificationPost}
+            onOpenMessage={openNotificationMessage}
+            onChanged={() => loadActivityCounts(true)}
+          />
+        )}
+
+        {page === "messages" && (
+          <Messages
+            user={user}
+            initialConversationId={selectedMessageConversation}
+            onChanged={() => loadActivityCounts(true)}
+          />
+        )}
 
         {page === "admin" &&
           isAdmin && <Admin />}
