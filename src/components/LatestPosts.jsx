@@ -33,6 +33,50 @@ function postAuthor(post) {
   );
 }
 
+
+async function resolveAvatar(profile) {
+  if (!profile?.avatar_path) return "";
+
+  const { data, error } = await supabase.storage
+    .from("avatars")
+    .createSignedUrl(profile.avatar_path, 3600);
+
+  if (error) {
+    console.error("Avatar URL failed:", error);
+    return "";
+  }
+
+  return data?.signedUrl || "";
+}
+
+async function hydrateAvatars(rows, profileKey = "profiles") {
+  const cache = new Map();
+
+  return Promise.all(
+    (rows || []).map(async (row) => {
+      const profile = row?.[profileKey];
+      const path = profile?.avatar_path;
+
+      if (!profile || !path) return row;
+
+      let avatarUrl = cache.get(path);
+
+      if (avatarUrl === undefined) {
+        avatarUrl = await resolveAvatar(profile);
+        cache.set(path, avatarUrl);
+      }
+
+      return {
+        ...row,
+        [profileKey]: {
+          ...profile,
+          avatar_url: avatarUrl,
+        },
+      };
+    })
+  );
+}
+
 function toDiscussion(row) {
   const discussion = row.discussions;
 
@@ -101,7 +145,8 @@ export default function LatestPosts({
           profiles!posts_author_id_fkey (
             id,
             username,
-            display_name
+            display_name,
+            avatar_path
           ),
           attachments (
             id,
@@ -158,7 +203,8 @@ export default function LatestPosts({
           )
           .slice(0, 8);
 
-        setPosts(visiblePosts);
+        const hydrated = await hydrateAvatars(visiblePosts);
+        setPosts(hydrated);
       }
 
       setLoading(false);
@@ -237,7 +283,15 @@ export default function LatestPosts({
                 }}
               >
                 <div className="mini-avatar">
-                  {author[0]?.toUpperCase() || "D"}
+                  {post.profiles?.avatar_url ? (
+                    <img
+                      src={post.profiles.avatar_url}
+                      alt=""
+                      className="mini-avatar-image"
+                    />
+                  ) : (
+                    author[0]?.toUpperCase() || "D"
+                  )}
                 </div>
 
                 <div>

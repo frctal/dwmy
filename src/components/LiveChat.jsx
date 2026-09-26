@@ -41,6 +41,50 @@ function displayName(profile) {
   );
 }
 
+
+async function resolveAvatar(profile) {
+  if (!profile?.avatar_path) return "";
+
+  const { data, error } = await supabase.storage
+    .from("avatars")
+    .createSignedUrl(profile.avatar_path, 3600);
+
+  if (error) {
+    console.error("Avatar URL failed:", error);
+    return "";
+  }
+
+  return data?.signedUrl || "";
+}
+
+async function hydrateAvatars(rows, profileKey = "profiles") {
+  const cache = new Map();
+
+  return Promise.all(
+    (rows || []).map(async (row) => {
+      const profile = row?.[profileKey];
+      const path = profile?.avatar_path;
+
+      if (!profile || !path) return row;
+
+      let avatarUrl = cache.get(path);
+
+      if (avatarUrl === undefined) {
+        avatarUrl = await resolveAvatar(profile);
+        cache.set(path, avatarUrl);
+      }
+
+      return {
+        ...row,
+        [profileKey]: {
+          ...profile,
+          avatar_url: avatarUrl,
+        },
+      };
+    })
+  );
+}
+
 function previewMessage(item) {
   if (!item) return "";
   const clean = (item.message || "").replace(/\s+/g, " ").trim();
@@ -84,7 +128,8 @@ export default function LiveChat({ user, onMessageUser }) {
           profiles!chat_messages_user_id_fkey (
             id,
             username,
-            display_name
+            display_name,
+            avatar_path
           )
         `)
         .order("created_at", {
@@ -104,7 +149,8 @@ export default function LiveChat({ user, onMessageUser }) {
       return;
     }
 
-    setMessages(data || []);
+    const hydrated = await hydrateAvatars(data || []);
+    setMessages(hydrated);
     setLoading(false);
 
     scrollToBottom();
@@ -135,7 +181,8 @@ export default function LiveChat({ user, onMessageUser }) {
                 profiles!chat_messages_user_id_fkey (
                   id,
                   username,
-                  display_name
+                  display_name,
+                  avatar_path
                 )
               `)
               .eq("id", payload.new.id)
@@ -150,16 +197,18 @@ export default function LiveChat({ user, onMessageUser }) {
             return;
           }
 
+          const [hydratedMessage] = await hydrateAvatars([data]);
+
           setMessages((current) => {
             if (
               current.some(
-                (item) => item.id === data.id
+                (item) => item.id === hydratedMessage.id
               )
             ) {
               return current;
             }
 
-            return [...current, data];
+            return [...current, hydratedMessage];
           });
 
           scrollToBottom();
@@ -201,7 +250,8 @@ export default function LiveChat({ user, onMessageUser }) {
           profiles!chat_messages_user_id_fkey (
             id,
             username,
-            display_name
+            display_name,
+            avatar_path
           )
         `)
         .single();
@@ -217,16 +267,18 @@ export default function LiveChat({ user, onMessageUser }) {
       return;
     }
 
+    const [hydratedMessage] = await hydrateAvatars([data]);
+
     setMessages((current) => {
       if (
         current.some(
-          (item) => item.id === data.id
+          (item) => item.id === hydratedMessage.id
         )
       ) {
         return current;
       }
 
-      return [...current, data];
+      return [...current, hydratedMessage];
     });
 
     setMessage("");
@@ -304,7 +356,15 @@ export default function LiveChat({ user, onMessageUser }) {
                 }}
               >
                 <div className="mini-avatar">
-                  {name[0]?.toUpperCase() || "D"}
+                  {item.profiles?.avatar_url ? (
+                    <img
+                      src={item.profiles.avatar_url}
+                      alt=""
+                      className="mini-avatar-image"
+                    />
+                  ) : (
+                    name[0]?.toUpperCase() || "D"
+                  )}
                 </div>
 
                 <div className="chat-content">
