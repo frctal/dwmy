@@ -8,6 +8,15 @@ const ALLOWED_AVATAR_TYPES = new Set([
   "image/webp",
 ]);
 
+const ACCENT_PRESETS = [
+  { name: "DWMY Green", value: "#52d6a0" },
+  { name: "Blue", value: "#5b9cff" },
+  { name: "Purple", value: "#a978ff" },
+  { name: "Red", value: "#ff6675" },
+  { name: "Orange", value: "#ff9b52" },
+];
+
+
 function extensionFor(file) {
   if (file.type === "image/png") return "png";
   if (file.type === "image/webp") return "webp";
@@ -17,6 +26,8 @@ function extensionFor(file) {
 export default function Settings({
   user,
   entitlements = [],
+  appearance = { mode: "dark", accent: "#52d6a0" },
+  onAppearanceChange,
   onProfileUpdated,
 }) {
   const fileInputRef = useRef(null);
@@ -25,6 +36,10 @@ export default function Settings({
   const [bio, setBio] = useState(user.bio || "");
   const [signature, setSignature] = useState(user.signature || "");
   const [avatarUrl, setAvatarUrl] = useState(null);
+  const [appearanceMode, setAppearanceMode] = useState(appearance.mode || "dark");
+  const [accentColor, setAccentColor] = useState(
+    appearance.accent || "#52d6a0"
+  );
 
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
@@ -72,6 +87,36 @@ export default function Settings({
       alive = false;
     };
   }, [user.avatar_path]);
+
+  useEffect(() => {
+    setAppearanceMode(appearance.mode || "dark");
+    setAccentColor(appearance.accent || "#52d6a0");
+  }, [appearance.mode, appearance.accent]);
+
+  function changeAppearanceMode(mode) {
+    setAppearanceMode(mode);
+    onAppearanceChange?.({
+      mode,
+      accent: accentColor,
+    });
+  }
+
+  function changeAccentColor(color) {
+    setAccentColor(color);
+    onAppearanceChange?.({
+      mode: appearanceMode,
+      accent: color,
+    });
+  }
+
+  function resetAppearance() {
+    setAppearanceMode("dark");
+    setAccentColor("#52d6a0");
+    onAppearanceChange?.({
+      mode: "dark",
+      accent: "#52d6a0",
+    });
+  }
 
   async function refreshIdentity() {
     if (onProfileUpdated) {
@@ -388,6 +433,114 @@ export default function Settings({
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="settings-card appearance-settings-card">
+        <div className="settings-card-heading">
+          <div>
+            <span className="eyebrow">APPEARANCE</span>
+            <h2>Your DWMY theme</h2>
+          </div>
+          <span className="settings-appearance-summary">
+            {appearanceMode === "light" ? "Light" : "Dark"} · {accentColor.toUpperCase()}
+          </span>
+        </div>
+
+        <p className="settings-appearance-copy">
+          Choose the base DWMY appearance, then apply your accent color on top.
+          Preset and seasonal themes can override these choices later without
+          replacing your saved personal appearance.
+        </p>
+
+        <div className="appearance-setting-group">
+          <div className="appearance-setting-label">
+            <strong>Base theme</strong>
+            <span>Controls the background, panels, borders, and text.</span>
+          </div>
+
+          <div className="appearance-mode-grid">
+            {["dark", "light"].map((mode) => (
+              <button
+                type="button"
+                key={mode}
+                className={`appearance-mode-card ${
+                  appearanceMode === mode ? "active" : ""
+                }`}
+                onClick={() => changeAppearanceMode(mode)}
+              >
+                <span className={`appearance-mode-preview ${mode}`}>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <strong>{mode === "dark" ? "Dark" : "Light"}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="appearance-setting-group">
+          <div className="appearance-setting-label">
+            <strong>Accent color</strong>
+            <span>
+              Used for active controls, labels, highlights, and DWMY identity.
+            </span>
+          </div>
+
+          <div className="appearance-accent-grid">
+            {ACCENT_PRESETS.map((preset) => (
+              <button
+                type="button"
+                key={preset.value}
+                className={`appearance-accent-choice ${
+                  accentColor.toLowerCase() === preset.value ? "active" : ""
+                }`}
+                onClick={() => changeAccentColor(preset.value)}
+                title={preset.name}
+              >
+                <span
+                  className="appearance-accent-swatch"
+                  style={{ background: preset.value }}
+                />
+                <span>{preset.name}</span>
+              </button>
+            ))}
+
+            <label className="appearance-accent-choice appearance-custom-color">
+              <input
+                type="color"
+                value={accentColor}
+                onChange={(event) => changeAccentColor(event.target.value)}
+                aria-label="Choose custom accent color"
+              />
+              <span className="appearance-accent-swatch custom">
+                <i style={{ background: accentColor }} />
+              </span>
+              <span>Custom</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="appearance-settings-footer">
+          <div>
+            <span
+              className="appearance-current-swatch"
+              style={{ background: accentColor }}
+            />
+            <span>
+              {appearanceMode === "light" ? "Light" : "Dark"} ·{" "}
+              {accentColor.toUpperCase()}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="settings-text-button"
+            onClick={resetAppearance}
+          >
+            Reset to DWMY default
+          </button>
+        </div>
       </section>
 
       <section className="settings-card">

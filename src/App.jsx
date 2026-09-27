@@ -18,7 +18,59 @@ import Notifications from "./pages/Notifications";
 import Messages from "./pages/Messages";
 import Settings from "./pages/Settings";
 
+
+const DWMY_APPEARANCE_KEY = "dwmy-appearance-v1";
+const DEFAULT_APPEARANCE = {
+  mode: "dark",
+  accent: "#52d6a0",
+};
+
+function normalizeAppearance(value) {
+  const mode = value?.mode === "light" ? "light" : "dark";
+  const accent =
+    typeof value?.accent === "string" &&
+    /^#[0-9a-fA-F]{6}$/.test(value.accent)
+      ? value.accent.toLowerCase()
+      : DEFAULT_APPEARANCE.accent;
+
+  return { mode, accent };
+}
+
+function hexToRgb(hex) {
+  const value = hex.replace("#", "");
+  return {
+    r: parseInt(value.slice(0, 2), 16),
+    g: parseInt(value.slice(2, 4), 16),
+    b: parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function applyAppearance(value) {
+  const appearance = normalizeAppearance(value);
+  const root = document.documentElement;
+  const { r, g, b } = hexToRgb(appearance.accent);
+
+  root.dataset.theme = appearance.mode;
+  root.style.setProperty("--accent", appearance.accent);
+  root.style.setProperty("--accent-soft", `rgba(${r}, ${g}, ${b}, 0.11)`);
+  root.style.setProperty("--accent-glow", `rgba(${r}, ${g}, ${b}, 0.80)`);
+  root.style.setProperty("--accent-border", `rgba(${r}, ${g}, ${b}, 0.30)`);
+
+  return appearance;
+}
+
+function loadStoredAppearance() {
+  try {
+    const stored = window.localStorage.getItem(DWMY_APPEARANCE_KEY);
+    return applyAppearance(stored ? JSON.parse(stored) : DEFAULT_APPEARANCE);
+  } catch (error) {
+    console.warn("Appearance preference load failed:", error);
+    return applyAppearance(DEFAULT_APPEARANCE);
+  }
+}
+
 export default function App() {
+  const [appearance, setAppearance] = useState(() => loadStoredAppearance());
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
 
@@ -388,6 +440,20 @@ export default function App() {
     window.scrollTo(0, 0);
   }
 
+  function updateAppearance(nextAppearance) {
+    const normalized = applyAppearance(nextAppearance);
+    setAppearance(normalized);
+
+    try {
+      window.localStorage.setItem(
+        DWMY_APPEARANCE_KEY,
+        JSON.stringify(normalized)
+      );
+    } catch (error) {
+      console.warn("Appearance preference save failed:", error);
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut();
 
@@ -684,6 +750,8 @@ export default function App() {
           <Settings
             user={user}
             entitlements={entitlements}
+            appearance={appearance}
+            onAppearanceChange={updateAppearance}
             onProfileUpdated={() =>
               session?.user
                 ? loadIdentity(session.user, true)

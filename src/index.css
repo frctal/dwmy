@@ -4995,3 +4995,633 @@ button.community-management-card:hover {
   margin-top: 0.35rem;
   font-weight: 600;
 }
+/* ==========================================================
+   DWMY V1.13A — GLOBAL APPEARANCE FOUNDATION
+   Append to index.css
+   ========================================================== */
+
+/*
+  Existing DWMY variables remain the contract.
+  data-theme changes the base palette; App.jsx sets --accent,
+  --accent-soft, --accent-glow, and --accent-border at runtime.
+*/
+
+:root {
+  --accent-glow: rgba(82, 214, 160, 0.80);
+  --accent-border: rgba(82, 214, 160, 0.30);
+  --header-bg: rgba(9, 12, 17, 0.92);
+  --panel-translucent: rgba(16, 21, 29, 0.88);
+  --input-bg: #0a0e14;
+  --inset-bg: #0d1219;
+  --button-accent-text: #07130e;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f6f9;
+  --surface: #ffffff;
+  --surface-2: #edf2f6;
+  --surface-3: #e3e9ef;
+  --border: #ccd5df;
+  --border-soft: #dde4eb;
+  --text: #17202b;
+  --muted: #667384;
+  --danger: #d94252;
+  --header-bg: rgba(255, 255, 255, 0.92);
+  --panel-translucent: rgba(255, 255, 255, 0.94);
+  --input-bg: #ffffff;
+  --inset-bg: #f7f9fb;
+  --button-accent-text: #07130e;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+body {
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.site-header {
+  background: var(--header-bg);
+}
+
+.panel {
+  background: var(--panel-translucent);
+}
+
+/* Replace a few foundational hard-coded dark surfaces so Light is useful
+   immediately without rewriting the existing production stylesheet. */
+.chat-compose,
+.post-author,
+.admin-stats div,
+.admin-panel,
+.hierarchy-card,
+.create-section {
+  background: var(--inset-bg);
+}
+
+.chat-compose input,
+.reply-box textarea,
+.create-section input,
+.create-section select,
+.auth-card input {
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.chat-content p,
+.latest-post p,
+.post-body p {
+  color: var(--text);
+}
+
+.live-dot {
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.level-day {
+  border-color: var(--accent-border);
+}
+
+.primary-button,
+.chat-compose button,
+.auth-submit,
+.landing-primary {
+  color: var(--button-accent-text);
+}
+
+/* Settings appearance UI */
+
+.settings-appearance-summary {
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+}
+
+.settings-appearance-copy {
+  max-width: 720px;
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.appearance-setting-group + .appearance-setting-group {
+  margin-top: 28px;
+}
+
+.appearance-setting-label {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.appearance-setting-label strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.appearance-setting-label span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.appearance-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 180px));
+  gap: 10px;
+}
+
+.appearance-mode-card {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+}
+
+.appearance-mode-card:hover,
+.appearance-mode-card.active {
+  border-color: var(--accent);
+}
+
+.appearance-mode-card.active {
+  box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+.appearance-mode-card > strong {
+  font-size: 10px;
+}
+
+.appearance-mode-preview {
+  height: 58px;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  grid-template-rows: 14px 1fr;
+  gap: 5px;
+  overflow: hidden;
+  border-radius: 5px;
+  padding: 7px;
+}
+
+.appearance-mode-preview.dark {
+  background: #090c11;
+  border: 1px solid #252e3c;
+}
+
+.appearance-mode-preview.light {
+  background: #f3f6f9;
+  border: 1px solid #ccd5df;
+}
+
+.appearance-mode-preview i {
+  display: block;
+  border-radius: 2px;
+}
+
+.appearance-mode-preview.dark i {
+  background: #1a2230;
+}
+
+.appearance-mode-preview.light i {
+  background: #dbe3ea;
+}
+
+.appearance-mode-preview i:first-child {
+  grid-column: 1 / -1;
+}
+
+.appearance-mode-preview i:nth-child(2) {
+  grid-row: 2;
+}
+
+.appearance-mode-preview i:nth-child(3) {
+  grid-row: 2;
+}
+
+.appearance-accent-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.appearance-accent-choice {
+  min-width: 105px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  padding: 9px 10px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.appearance-accent-choice:hover,
+.appearance-accent-choice.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.appearance-accent-choice.active {
+  background: var(--accent-soft);
+}
+
+.appearance-accent-swatch,
+.appearance-current-swatch {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 50%;
+}
+
+.appearance-custom-color {
+  position: relative;
+  cursor: pointer;
+}
+
+.appearance-custom-color input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.appearance-accent-swatch.custom {
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  background:
+    conic-gradient(
+      #ff6675,
+      #ff9b52,
+      #f0d85c,
+      #52d6a0,
+      #5b9cff,
+      #a978ff,
+      #ff6675
+    );
+}
+
+.appearance-accent-swatch.custom i {
+  width: 7px;
+  height: 7px;
+  display: block;
+  border-radius: 50%;
+}
+
+.appearance-settings-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.appearance-settings-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+}
+
+@media (max-width: 600px) {
+  .appearance-mode-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .appearance-accent-choice {
+    flex: 1 1 105px;
+  }
+
+  .appearance-settings-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+/* ==========================================================
+   DWMY V1.13A.1 — LIGHT THEME SURFACE CLEANUP
+   Append after V1.13A
+   ========================================================== */
+
+:root[data-theme="light"] {
+  --light-card: #ffffff;
+  --light-input: #f8fafc;
+  --light-nested: #f5f8fa;
+  --light-border: #cbd5df;
+  --light-border-soft: #dbe3ea;
+}
+
+
+/* ----------------------------------------------------------
+   SETTINGS — restore card segmentation
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .settings-card {
+  background: var(--light-card);
+  border-color: var(--light-border);
+}
+
+
+/* ----------------------------------------------------------
+   SETTINGS — profile + password fields
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .settings-card input:not([type="color"]),
+:root[data-theme="light"] .settings-card textarea,
+:root[data-theme="light"] .settings-card select {
+  background: var(--light-input);
+  color: var(--text);
+  border-color: var(--light-border);
+}
+
+:root[data-theme="light"] .settings-card input:not([type="color"])::placeholder,
+:root[data-theme="light"] .settings-card textarea::placeholder {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .settings-card input:focus,
+:root[data-theme="light"] .settings-card textarea:focus,
+:root[data-theme="light"] .settings-card select:focus {
+  border-color: var(--accent);
+}
+
+
+/* Keep disabled/fixed fields visually distinct */
+
+:root[data-theme="light"] .settings-card input:disabled,
+:root[data-theme="light"] .settings-card textarea:disabled {
+  background: #e7ebef;
+  color: #66717e;
+  border-color: #d1d8df;
+}
+
+
+/* ----------------------------------------------------------
+   DISCUSSION COMPOSER
+   ---------------------------------------------------------- */
+
+/*
+   The existing editor toolbar uses an old hard-coded dark
+   background. These selectors intentionally target the common
+   composer/editor containers without changing Dark mode.
+*/
+
+:root[data-theme="light"] .editor-toolbar,
+:root[data-theme="light"] .composer-toolbar,
+:root[data-theme="light"] .reply-toolbar,
+:root[data-theme="light"] .formatting-toolbar {
+  background: var(--light-nested);
+  color: var(--text);
+  border-color: var(--light-border-soft);
+}
+
+:root[data-theme="light"] .editor-toolbar button,
+:root[data-theme="light"] .composer-toolbar button,
+:root[data-theme="light"] .reply-toolbar button,
+:root[data-theme="light"] .formatting-toolbar button {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .editor-toolbar button:hover,
+:root[data-theme="light"] .composer-toolbar button:hover,
+:root[data-theme="light"] .reply-toolbar button:hover,
+:root[data-theme="light"] .formatting-toolbar button:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+
+/* Composer body */
+
+:root[data-theme="light"] .reply-box,
+:root[data-theme="light"] .reply-editor,
+:root[data-theme="light"] .post-composer {
+  background: var(--light-card);
+  border-color: var(--light-border);
+}
+
+:root[data-theme="light"] .reply-box textarea,
+:root[data-theme="light"] .reply-editor textarea,
+:root[data-theme="light"] .post-composer textarea {
+  background: var(--light-card);
+  color: var(--text);
+}
+
+
+/* ----------------------------------------------------------
+   GENERAL LIGHT CARD HIERARCHY
+
+   Deliberately subtle. Market Directory already looks good,
+   so don't globally darken every panel.
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .settings-card,
+:root[data-theme="light"] .post-card,
+:root[data-theme="light"] .discussion-post,
+:root[data-theme="light"] .reply-box {
+  border-color: var(--light-border);
+}
+
+
+/* Horizontal separators need slightly more definition on white */
+
+:root[data-theme="light"] .settings-card hr,
+:root[data-theme="light"] .post-card hr,
+:root[data-theme="light"] .discussion-post hr {
+  border-color: var(--light-border-soft);
+}
+/* ==========================================================
+   DWMY V1.13A.2 — LIGHT THEME COMMUNITY + TEXT CLEANUP
+   Append after V1.13A.1
+   ========================================================== */
+
+
+/* ----------------------------------------------------------
+   LIGHT MODE — slightly stronger secondary text
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] {
+  --muted: #596777;
+}
+
+
+/* ----------------------------------------------------------
+   COMMUNITY DIRECTORY CARDS
+
+   Light mode should inherit the user's light environment.
+   Community identity/accent will remain a separate layer.
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .community-card {
+  background: #ffffff;
+  color: var(--text);
+  border-color: var(--light-border);
+}
+
+:root[data-theme="light"] .community-card:hover {
+  background: #f9fbfc;
+  border-color: var(--accent-border);
+}
+
+:root[data-theme="light"] .community-card h1,
+:root[data-theme="light"] .community-card h2,
+:root[data-theme="light"] .community-card h3,
+:root[data-theme="light"] .community-card strong {
+  color: var(--text);
+}
+
+:root[data-theme="light"] .community-card p,
+:root[data-theme="light"] .community-card small {
+  color: var(--muted);
+}
+
+
+/* ----------------------------------------------------------
+   COMMUNITY BADGES / CHIPS
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .community-card .badge,
+:root[data-theme="light"] .community-card .community-badge,
+:root[data-theme="light"] .community-card .status-badge,
+:root[data-theme="light"] .community-card .community-chip {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--light-border);
+}
+
+
+/* ----------------------------------------------------------
+   COMMUNITY PAGE — generic controls
+
+   Do NOT touch Community banner/media.
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .community-page .badge,
+:root[data-theme="light"] .community-page .community-badge,
+:root[data-theme="light"] .community-page .status-badge,
+:root[data-theme="light"] .community-page .community-chip {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--light-border);
+}
+
+:root[data-theme="light"] .community-page input,
+:root[data-theme="light"] .community-page textarea,
+:root[data-theme="light"] .community-page select {
+  background: var(--light-input);
+  color: var(--text);
+  border-color: var(--light-border);
+}
+
+:root[data-theme="light"] .community-page input::placeholder,
+:root[data-theme="light"] .community-page textarea::placeholder {
+  color: var(--muted);
+}
+
+
+/* ----------------------------------------------------------
+   COMMUNITY CONTENT SURFACES
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .community-page .panel,
+:root[data-theme="light"] .community-page .community-panel,
+:root[data-theme="light"] .community-page .community-section {
+  background: #ffffff;
+  border-color: var(--light-border);
+}
+
+
+/* ----------------------------------------------------------
+   LIGHT MODE — tiny metadata readability improvement
+   ---------------------------------------------------------- */
+
+:root[data-theme="light"] .muted {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .online-count,
+:root[data-theme="light"] .online-label,
+:root[data-theme="light"] .post-meta,
+:root[data-theme="light"] .community-meta {
+  color: var(--muted);
+}
+/* =========================================================
+   DWMY V1.13A.3 — Light Theme Community Status Chips
+   Keep Community banners/media untouched.
+   ========================================================= */
+
+html[data-theme="light"] .community-card-meta > span,
+html[data-theme="light"] .community-detail-meta > span {
+  background: #eef2f6;
+  color: #566579;
+  border-color: #cbd5df;
+}
+
+/* Slight interaction lift without turning dark */
+html[data-theme="light"] .community-card-meta > span:hover,
+html[data-theme="light"] .community-detail-meta > span:hover {
+  background: #e5ebf1;
+  color: #263548;
+  border-color: #b9c5d1;
+}
+/* =========================================================
+   DWMY — Post Identity + Action Polish
+   ========================================================= */
+
+/* Post count — small neutral statistic */
+.post-author .post-count {
+  color: var(--text) !important;
+  font-size: 0.68rem;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+
+/* Signature — smaller neutral identity text */
+.post-author .post-signature {
+  color: var(--text) !important;
+  font-size: 0.60rem;
+  font-weight: 400 !important;
+  line-height: 1.2;
+  opacity: 1 !important;
+
+  border: 0 !important;
+  margin-top: 0.55rem;
+  padding-top: 0 !important;
+
+  white-space: nowrap;
+}
+
+/* Like / Reply — secondary actions, not headline text */
+.post-actions,
+.post-actions button {
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+/* Post-body/action separator */
+.post-actions {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 0.75rem;
+}
+
+/* Give the separator just enough contrast in Light */
+html[data-theme="light"] .post-actions {
+  border-top-color: var(--light-border-soft);
+}
