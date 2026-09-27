@@ -4961,3 +4961,20 @@ button.community-management-card:hover {
 .community-invitation-identity > div:last-child {
   min-width: 0;
 }
+/* DWMY V1.11A — moderation notification context */
+.notification-moderation-reason {
+  display: block;
+  margin-top: 0.35rem;
+  white-space: normal;
+}
+
+.notification-context {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.notification-context-link {
+  display: block;
+  margin-top: 0.35rem;
+  font-weight: 600;
+}

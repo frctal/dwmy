@@ -50,6 +50,7 @@ export default function Notifications({
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [moderationDetails, setModerationDetails] = useState({});
 
   async function load() {
     setLoading(true);
@@ -86,8 +87,47 @@ export default function Notifications({
 
     const { data, error } = await q;
 
-    if (error) setError(error.message);
-    else setRows(data || []);
+    if (error) {
+      setError(error.message);
+      setRows([]);
+      setModerationDetails({});
+    } else {
+      const nextRows = data || [];
+      setRows(nextRows);
+
+      const incidentIds = [
+        ...new Set(
+          nextRows
+            .filter((row) =>
+              ["MODERATION_WARNING", "MODERATION_RESTRICTION", "MODERATION_RESTRICTION_REVOKED"].includes(
+                row.notification_type
+              )
+            )
+            .map((row) => row.moderation_incident_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      if (incidentIds.length === 0) {
+        setModerationDetails({});
+      } else {
+        const { data: detailRows, error: detailError } = await supabase.rpc(
+          "get_my_moderation_notification_details",
+          { target_incident_ids: incidentIds }
+        );
+
+        if (detailError) {
+          console.error("Moderation notification details failed:", detailError);
+          setModerationDetails({});
+        } else {
+          setModerationDetails(
+            Object.fromEntries(
+              (detailRows || []).map((detail) => [detail.incident_id, detail])
+            )
+          );
+        }
+      }
+    }
 
     setLoading(false);
   }
@@ -137,6 +177,15 @@ export default function Notifications({
 
     if (n.discussion_id) {
       onOpenPost(n.discussion_id, n.post_id);
+      return;
+    }
+
+    const moderationDetail = moderationDetails[n.moderation_incident_id];
+    if (
+      moderationDetail?.community_id &&
+      onOpenCommunities
+    ) {
+      onOpenCommunities(moderationDetail.community_id);
     }
   }
 
@@ -221,30 +270,66 @@ export default function Notifications({
         </div>
       ) : (
         <div className="notification-list">
-          {rows.map((n) => (
-            <article className="notification-row" key={n.id}>
-              <button className="notification-main" onClick={() => open(n)}>
-                <strong>{label(n)}</strong>
-                <span>{when(n.created_at)}</span>
-              </button>
+          {rows.map((n) => {
+            const detail = moderationDetails[n.moderation_incident_id];
+            const isMemberModeration = [
+              "MODERATION_WARNING",
+              "MODERATION_RESTRICTION",
+              "MODERATION_RESTRICTION_REVOKED",
+            ].includes(n.notification_type);
 
-              {tab === "active" ? (
-                <button
-                  className="dwmy-text-button"
-                  onClick={() => archive(n.id)}
-                >
-                  Archive
+            return (
+              <article className="notification-row" key={n.id}>
+                <button className="notification-main" onClick={() => open(n)}>
+                  <strong>{label(n)}</strong>
+
+                  {isMemberModeration && detail?.community_name && (
+                    <span className="notification-context">
+                      {detail.community_name}
+                    </span>
+                  )}
+
+                  {isMemberModeration && detail?.reason_text && (
+                    <span className="notification-moderation-reason">
+                      <b>Reason:</b> {detail.reason_text}
+                    </span>
+                  )}
+
+                  {n.notification_type === "MODERATION_RESTRICTION" &&
+                    detail?.restriction_expires_at && (
+                      <span className="notification-context">
+                        Until {when(detail.restriction_expires_at)}
+                      </span>
+                    )}
+
+                  <span>{when(n.created_at)}</span>
+
+                  {isMemberModeration &&
+                    (n.discussion_id || detail?.community_id) && (
+                      <span className="notification-context-link">
+                        {n.discussion_id ? "View context →" : "Open Community →"}
+                      </span>
+                    )}
                 </button>
-              ) : (
-                <button
-                  className="dwmy-text-button"
-                  onClick={() => restore(n.id)}
-                >
-                  Restore
-                </button>
-              )}
-            </article>
-          ))}
+
+                {tab === "active" ? (
+                  <button
+                    className="dwmy-text-button"
+                    onClick={() => archive(n.id)}
+                  >
+                    Archive
+                  </button>
+                ) : (
+                  <button
+                    className="dwmy-text-button"
+                    onClick={() => restore(n.id)}
+                  >
+                    Restore
+                  </button>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
