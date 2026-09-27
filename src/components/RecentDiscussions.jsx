@@ -31,7 +31,16 @@ function toDiscussion(row) {
     discussionType: row.discussion_type,
 
     sectionId: row.section_id,
-    section: row.sections?.name || "Market",
+    section:
+      row.discussion_type === "COMMUNITY"
+        ? row.communities?.name || "Community"
+        : row.sections?.name ||
+          (row.discussion_type === "CONVERSATION" ? "Conversations" : "Market"),
+
+    communityId: row.community_id,
+    communityCategoryId: row.community_category_id,
+    communityName: row.communities?.name || "",
+    communityCategory: row.community_categories?.name || "",
 
     instrumentId: row.instrument_id,
 
@@ -82,6 +91,8 @@ export default function RecentDiscussions({
           id,
           discussion_type,
           section_id,
+          community_id,
+          community_category_id,
           instrument_id,
           segment_type,
           segment_start,
@@ -100,6 +111,16 @@ export default function RecentDiscussions({
           instruments (
             id,
             symbol,
+            name,
+            slug
+          ),
+          communities (
+            id,
+            name,
+            slug
+          ),
+          community_categories (
+            id,
             name,
             slug
           )
@@ -177,10 +198,14 @@ export default function RecentDiscussions({
                 </div>
 
                 <div className="discussion-meta">
-                  {discussion.segmentType && (
-                    <span className="segment-badge">
-                      {discussion.segmentType}
-                    </span>
+                  {discussion.discussionType === "COMMUNITY" ? (
+                    <span className="segment-badge">COMMUNITY</span>
+                  ) : (
+                    discussion.segmentType && (
+                      <span className="segment-badge">
+                        {discussion.segmentType}
+                      </span>
+                    )
                   )}
 
                   {discussion.locked && (
@@ -190,8 +215,9 @@ export default function RecentDiscussions({
                   )}
 
                   <span>
-                    {discussion.segmentStart ||
-                      discussion.section}
+                    {discussion.discussionType === "COMMUNITY"
+                      ? discussion.communityCategory || discussion.communityName
+                      : discussion.segmentStart || discussion.section}
                   </span>
                 </div>
               </div>

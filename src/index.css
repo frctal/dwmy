@@ -4197,3 +4197,383 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+/* ==========================================================
+   DWMY COMMUNITIES V1.6.2A — CONVERSATION-FIRST UX
+   ========================================================== */
+
+.community-conversations-section {
+  margin-top: 28px;
+}
+
+.community-conversations-heading {
+  align-items: flex-end;
+}
+
+.community-section-copy {
+  max-width: 650px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.community-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.community-conversation-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.community-conversation-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 150px;
+  align-items: center;
+  gap: 18px;
+  min-height: 92px;
+  padding: 18px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  transition: background .14s ease;
+}
+
+.community-conversation-card:last-child {
+  border-bottom: 0;
+}
+
+.community-conversation-card:hover {
+  background: var(--surface-2);
+}
+
+.community-conversation-main {
+  min-width: 0;
+}
+
+.community-conversation-main > strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-conversation-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.community-conversation-context span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.community-conversation-context span:first-child {
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.community-conversation-stat,
+.community-conversation-activity {
+  display: flex;
+  flex-direction: column;
+}
+
+.community-conversation-stat strong,
+.community-conversation-activity strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.community-conversation-stat span,
+.community-conversation-activity span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.community-browse-section {
+  margin-top: 34px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.community-navigation-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.community-navigation-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.community-navigation-primary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 21px 22px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.community-navigation-primary:hover,
+.community-navigation-children button:hover {
+  background: var(--surface-2);
+}
+
+.community-navigation-kicker,
+.community-navigation-children button div > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+
+.community-navigation-primary strong {
+  display: block;
+  font-size: 14px;
+}
+
+.community-navigation-primary p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.community-navigation-arrow {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.community-navigation-children {
+  display: grid;
+  border-top: 1px solid var(--border-soft);
+}
+
+.community-navigation-children button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 22px 15px 38px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: #0d1219;
+  color: var(--text);
+  text-align: left;
+}
+
+.community-navigation-children button:last-child {
+  border-bottom: 0;
+}
+
+.community-navigation-children button strong {
+  font-size: 11px;
+}
+
+.community-navigation-children button > span:last-child {
+  color: var(--muted);
+}
+
+@media (max-width: 700px) {
+  .community-conversations-heading,
+  .community-heading-actions {
+    align-items: flex-start;
+  }
+
+  .community-heading-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .community-conversation-card {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .community-conversation-stat,
+  .community-conversation-activity {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .community-conversation-stat span,
+  .community-conversation-activity span {
+    margin-top: 0;
+  }
+
+  .community-navigation-children button {
+    padding-left: 22px;
+  }
+}
+
+/* ==========================================================
+   DWMY Communities V1.6.2A.2 — compact conversation composer
+   ========================================================== */
+.community-create-panel-compact {
+  margin: 0;
+  padding: 16px 20px;
+  border-color: var(--border);
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  background: #0d1219;
+}
+
+.community-create-heading-compact {
+  align-items: center;
+}
+
+.community-create-heading-compact h2 {
+  margin: 2px 0 0;
+  font-size: 15px;
+}
+
+.community-create-heading-compact > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.community-form-grid-compact {
+  margin-top: 12px;
+}
+
+.community-form-grid-compact input {
+  padding: 10px 12px;
+}
+
+.community-create-footer-compact {
+  margin-top: 12px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.community-create-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 700px) {
+  .community-create-footer-compact {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .community-create-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+/* ==========================================================
+   DWMY Communities V1.6.2C — consolidated management surface
+   Additive patch only. Existing production CSS above unchanged.
+   ========================================================== */
+
+.community-manage-button {
+  margin-left: auto;
+  align-self: flex-start;
+  flex: 0 0 auto;
+}
+
+.community-management {
+  margin-top: 28px;
+}
+
+.community-management-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.community-management-card {
+  position: relative;
+  min-height: 145px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 18px;
+  text-align: left;
+}
+
+button.community-management-card:hover {
+  border-color: #344255;
+  background: var(--surface-2);
+}
+
+.community-management-card .eyebrow {
+  margin-bottom: 9px;
+}
+
+.community-management-card strong {
+  font-size: 14px;
+}
+
+.community-management-card p {
+  max-width: 420px;
+  margin: 7px 32px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.community-management-arrow {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.community-management-card-future {
+  grid-column: 1 / -1;
+  min-height: 110px;
+  cursor: default;
+  opacity: .7;
+}
+
+@media (max-width: 700px) {
+  .community-manage-button {
+    margin-left: 0;
+  }
+
+  .community-management-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .community-management-card-future {
+    grid-column: auto;
+  }
+}

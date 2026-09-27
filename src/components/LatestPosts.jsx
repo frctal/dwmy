@@ -87,7 +87,17 @@ function toDiscussion(row) {
     sectionId: discussion.section_id,
 
     section:
-      discussion.sections?.name || "Market",
+      discussion.discussion_type === "COMMUNITY"
+        ? discussion.communities?.name || "Community"
+        : discussion.sections?.name ||
+          (discussion.discussion_type === "CONVERSATION"
+            ? "Conversations"
+            : "Market"),
+
+    communityId: discussion.community_id,
+    communityCategoryId: discussion.community_category_id,
+    communityName: discussion.communities?.name || "",
+    communityCategory: discussion.community_categories?.name || "",
 
     instrumentId: discussion.instrument_id,
 
@@ -158,6 +168,8 @@ export default function LatestPosts({
             id,
             discussion_type,
             section_id,
+            community_id,
+            community_category_id,
             instrument_id,
             segment_type,
             segment_start,
@@ -175,6 +187,16 @@ export default function LatestPosts({
             instruments (
               id,
               symbol,
+              name,
+              slug
+            ),
+            communities (
+              id,
+              name,
+              slug
+            ),
+            community_categories (
+              id,
               name,
               slug
             )
@@ -301,8 +323,13 @@ export default function LatestPosts({
                     </strong>
 
                     <span className="latest-context">
-                      {discussion.segmentType ||
-                        discussion.section}
+                      {discussion.discussionType === "COMMUNITY"
+                        ? `COMMUNITY · ${discussion.communityName || "Community"}${
+                            discussion.communityCategory
+                              ? ` · ${discussion.communityCategory}`
+                              : ""
+                          }`
+                        : discussion.segmentType || discussion.section}
                     </span>
 
                     {discussion.locked && (

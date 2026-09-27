@@ -130,6 +130,7 @@ export default function Communities({
   const [discussionLoading, setDiscussionLoading] = useState(false);
   const [discussionCreating, setDiscussionCreating] = useState(false);
   const [discussionTitle, setDiscussionTitle] = useState("");
+  const [showDiscussionCreate, setShowDiscussionCreate] = useState(false);
   const [canCreateDiscussion, setCanCreateDiscussion] = useState(false);
   const [restoringContext, setRestoringContext] = useState(false);
   const [communityView, setCommunityView] = useState("forum");
@@ -140,7 +141,10 @@ export default function Communities({
   const [membershipBusy, setMembershipBusy] = useState(false);
   const [canManageMembers, setCanManageMembers] = useState(false);
   const [canRemoveMembers, setCanRemoveMembers] = useState(false);
+  const [canInviteMembers, setCanInviteMembers] = useState(false);
   const [canManageJoinRequests, setCanManageJoinRequests] = useState(false);
+  const [showInvitationHistory, setShowInvitationHistory] = useState(false);
+  const [revokeInvitationBusyId, setRevokeInvitationBusyId] = useState(null);
   const [inviteUsername, setInviteUsername] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [myCommunityInvitations, setMyCommunityInvitations] = useState([]);
@@ -398,7 +402,7 @@ export default function Communities({
     setCommunityDiscussions([]);
     setDiscussionTitle("");
 
-    const [, permissionResult, createDiscussionPermission] = await Promise.all([
+    const [, permissionResult, createDiscussionPermission, discussionResult] = await Promise.all([
       loadCommunityCategories(community.id),
       supabase.rpc("has_community_permission", {
         target_community_id: community.id,
@@ -408,6 +412,16 @@ export default function Communities({
         target_community_id: community.id,
         requested_permission: "CREATE_DISCUSSION",
       }),
+      supabase
+        .from("discussions")
+        .select(
+          "id, discussion_type, community_id, community_category_id, title, created_by, is_locked, is_pinned, created_at, updated_at, last_activity_at, reply_count, is_deleted"
+        )
+        .eq("discussion_type", "COMMUNITY")
+        .eq("community_id", community.id)
+        .eq("is_deleted", false)
+        .order("is_pinned", { ascending: false })
+        .order("last_activity_at", { ascending: false }),
     ]);
 
     if (permissionResult.error) {
@@ -425,6 +439,13 @@ export default function Communities({
       setCanCreateDiscussion(false);
     } else {
       setCanCreateDiscussion(Boolean(createDiscussionPermission.data));
+    }
+
+    if (discussionResult.error) {
+      console.error("Community conversations load failed:", discussionResult.error);
+      setCommunityDiscussions([]);
+    } else {
+      setCommunityDiscussions(discussionResult.data || []);
     }
 
     setCommunityLoading(false);
@@ -446,6 +467,7 @@ export default function Communities({
       manageRolesResult,
       manageSettingsResult,
       removeMembersResult,
+      inviteMembersResult,
     ] = await Promise.all([
       supabase
         .from("community_members")
@@ -464,6 +486,10 @@ export default function Communities({
       supabase.rpc("has_community_permission", {
         target_community_id: community.id,
         requested_permission: "REMOVE_MEMBER",
+      }),
+      supabase.rpc("has_community_permission", {
+        target_community_id: community.id,
+        requested_permission: "INVITE_MEMBER",
       }),
     ]);
 
@@ -507,8 +533,11 @@ export default function Communities({
     setCanRemoveMembers(
       !removeMembersResult.error && Boolean(removeMembersResult.data)
     );
+    setCanInviteMembers(
+      !inviteMembersResult.error && Boolean(inviteMembersResult.data)
+    );
 
-    if (mayReadInvitations) {
+    if (mayReadInvitations || (!inviteMembersResult.error && inviteMembersResult.data)) {
       const { data, error: invitationError } = await supabase
         .from("community_invitations")
         .select(
@@ -521,7 +550,35 @@ export default function Communities({
         console.error("Community invitations failed:", invitationError);
         setCommunityInvitations([]);
       } else {
-        setCommunityInvitations(data || []);
+        const rows = data || [];
+        const inviteeIds = [...new Set(
+          rows.map((row) => row.invitee_user_id).filter(Boolean)
+        )];
+        let profileById = {};
+
+        if (inviteeIds.length > 0) {
+          const { data: profiles, error: profileError } = await supabase
+            .from("profiles")
+            .select("id, username, display_name")
+            .in("id", inviteeIds);
+
+          if (profileError) {
+            console.error("Community invitation profiles failed:", profileError);
+          } else {
+            profileById = Object.fromEntries(
+              (profiles || []).map((profile) => [profile.id, profile])
+            );
+          }
+        }
+
+        setCommunityInvitations(
+          rows.map((row) => ({
+            ...row,
+            inviteeProfile: row.invitee_user_id
+              ? profileById[row.invitee_user_id] || null
+              : null,
+          }))
+        );
       }
     } else {
       setCommunityInvitations([]);
@@ -650,6 +707,28 @@ export default function Communities({
     }
 
     setMembershipBusy(false);
+  }
+
+  async function revokeCommunityInvitation(invitation) {
+    if (!selectedCommunity || !invitation?.id) return;
+
+    setRevokeInvitationBusyId(invitation.id);
+    setError("");
+    setNotice("");
+
+    const { error: revokeError } = await supabase.rpc(
+      "revoke_community_invitation",
+      { target_invitation_id: invitation.id }
+    );
+
+    if (revokeError) {
+      setError(revokeError.message);
+    } else {
+      setNotice("Invitation revoked.");
+      await loadCommunityMembership();
+    }
+
+    setRevokeInvitationBusyId(null);
   }
 
   async function reviewJoinRequest(request, decision) {
@@ -991,6 +1070,7 @@ export default function Communities({
     setError("");
     setNotice("");
     setDiscussionTitle("");
+    setShowDiscussionCreate(false);
 
     const { data, error: discussionError } = await supabase
       .from("discussions")
@@ -1022,7 +1102,7 @@ export default function Communities({
 
   async function createCommunityDiscussion(event) {
     event.preventDefault();
-    if (!selectedCommunity || !selectedCategory) return;
+    if (!selectedCommunity) return;
 
     const title = discussionTitle.trim();
     if (!title) {
@@ -1038,7 +1118,7 @@ export default function Communities({
       "create_community_discussion",
       {
         target_community_id: selectedCommunity.id,
-        target_category_id: selectedCategory.id,
+        target_category_id: selectedCategory?.id ?? null,
         discussion_title: title,
       }
     );
@@ -1051,8 +1131,13 @@ export default function Communities({
     }
 
     setDiscussionTitle("");
+    setShowDiscussionCreate(false);
     setNotice(`${title} was created.`);
-    await openCategory(selectedCategory);
+    if (selectedCategory) {
+      await openCategory(selectedCategory);
+    } else {
+      await openCommunity(selectedCommunity);
+    }
     setNotice(`${title} was created.`);
     setDiscussionCreating(false);
   }
@@ -1191,149 +1276,148 @@ export default function Communities({
           <div>
             <span className="eyebrow">COMMUNITY CATEGORY</span>
             <h1>{selectedCategory.name}</h1>
-            <p>
-              {selectedCategory.description ||
-                "Community discussion category"}
-            </p>
+            <p>{selectedCategory.description || "Community conversations"}</p>
             <div className="community-detail-meta">
               <span>{selectedCommunity.name}</span>
-              <span>{communityDiscussions.length} discussions</span>
+              <span>{communityDiscussions.length} active</span>
             </div>
           </div>
-        </div>
-
-        <div className="community-detail-toolbar">
-          <button
-            type="button"
-            className="community-secondary-button"
-            onClick={() => {
-              setSelectedCategory(null);
-              setCommunityDiscussions([]);
-              setNotice("");
-              setError("");
-              window.scrollTo(0, 0);
-            }}
-          >
-            ← Community Forum
-          </button>
         </div>
 
         {notice && <div className="community-message success">{notice}</div>}
         {error && <div className="community-message error">{error}</div>}
 
-        {canCreateDiscussion && (
-          <form
-            className="community-create-panel"
-            onSubmit={createCommunityDiscussion}
-          >
-            <div className="community-create-heading">
-              <div>
-                <span className="eyebrow">NEW DISCUSSION</span>
-                <h2>Start a Discussion</h2>
-              </div>
-              <span>{selectedCategory.name}</span>
-            </div>
-
-            <div className="community-form-grid">
-              <label className="community-form-wide">
-                <span>Title</span>
-                <input
-                  value={discussionTitle}
-                  maxLength={200}
-                  onChange={(event) => setDiscussionTitle(event.target.value)}
-                  placeholder="What do you want to discuss?"
-                />
-              </label>
-            </div>
-
-            <div className="community-create-footer">
-              <small>
-                This thread will use DWMY&apos;s existing discussion and post
-                engine.
-              </small>
-              <button
-                type="submit"
-                className="primary-button"
-                disabled={discussionCreating}
-              >
-                {discussionCreating ? "Creating..." : "Create Discussion"}
-              </button>
-            </div>
-          </form>
-        )}
-
-        <section className="community-section">
-          <div className="community-section-heading">
+        <section className="community-section community-conversations-section">
+          <div className="community-section-heading community-conversations-heading">
             <div>
-              <span className="eyebrow">DISCUSSIONS</span>
-              <h2>{selectedCategory.name}</h2>
+              <span className="eyebrow">{selectedCategory.name.toUpperCase()}</span>
+              <h2>Conversations</h2>
+              <p className="community-section-copy">
+                Conversations filed under {selectedCategory.name} in {selectedCommunity.name}.
+              </p>
             </div>
-            <span className="community-result-count">
-              {communityDiscussions.length}{" "}
-              {communityDiscussions.length === 1
-                ? "Discussion"
-                : "Discussions"}
-            </span>
+            <div className="community-heading-actions">
+              <span className="community-result-count">{communityDiscussions.length} active</span>
+              {canCreateDiscussion && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    setShowDiscussionCreate((value) => !value);
+                    setDiscussionTitle("");
+                    setError("");
+                  }}
+                >
+                  {showDiscussionCreate ? "Close" : "+ New Conversation"}
+                </button>
+              )}
+            </div>
           </div>
 
+          {canCreateDiscussion && showDiscussionCreate && (
+            <form
+              className="community-create-panel community-create-panel-compact"
+              onSubmit={createCommunityDiscussion}
+            >
+              <div className="community-create-heading community-create-heading-compact">
+                <div>
+                  <span className="eyebrow">NEW CONVERSATION</span>
+                  <h2>Start a Conversation</h2>
+                </div>
+                <span>{selectedCategory.name}</span>
+              </div>
+
+              <div className="community-form-grid community-form-grid-compact">
+                <label className="community-form-wide">
+                  <span>Title</span>
+                  <input
+                    autoFocus
+                    value={discussionTitle}
+                    maxLength={200}
+                    onChange={(event) => setDiscussionTitle(event.target.value)}
+                    placeholder="Conversation title"
+                  />
+                </label>
+              </div>
+
+              <div className="community-create-footer community-create-footer-compact">
+                <small>Conversation in {selectedCategory.name}.</small>
+                <div className="community-create-actions">
+                  <button
+                    type="button"
+                    className="community-secondary-button"
+                    onClick={() => {
+                      setShowDiscussionCreate(false);
+                      setDiscussionTitle("");
+                      setError("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="primary-button" disabled={discussionCreating}>
+                    {discussionCreating ? "Creating..." : "Create Conversation"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
           {discussionLoading ? (
-            <div className="community-empty">Loading discussions...</div>
+            <div className="community-empty">Loading conversations...</div>
           ) : communityDiscussions.length === 0 ? (
             <div className="community-empty">
-              <strong>No discussions yet.</strong>
-              <span>
-                {canCreateDiscussion
-                  ? "Start the first discussion in this category."
-                  : "There are no discussions in this category yet."}
-              </span>
+              <strong>No conversations yet.</strong>
+              <span>{canCreateDiscussion ? "Start the first conversation in this category." : "There are no conversations in this category yet."}</span>
             </div>
           ) : (
-            <div className="community-category-list">
+            <div className="community-conversation-list">
               {communityDiscussions.map((discussion) => (
-                <article className="community-category" key={discussion.id}>
-                  <div>
+                <button
+                  type="button"
+                  className="community-conversation-card"
+                  key={discussion.id}
+                  onClick={() =>
+                    openDiscussion?.(
+                      {
+                        id: discussion.id,
+                        discussionType: discussion.discussion_type,
+                        sectionId: null,
+                        section: selectedCommunity.name,
+                        instrumentId: null,
+                        instrument: discussion.title,
+                        instrumentName: selectedCategory.name,
+                        segmentType: null,
+                        segmentStart: null,
+                        segmentEnd: null,
+                        communityId: discussion.community_id,
+                        communityCategoryId: discussion.community_category_id,
+                        title: discussion.title,
+                        locked: discussion.is_locked || false,
+                        replies: discussion.reply_count || 0,
+                        lastActivityAt: discussion.last_activity_at,
+                      },
+                      { communityId: selectedCommunity.id, categoryId: selectedCategory.id }
+                    )
+                  }
+                >
+                  <div className="community-conversation-main">
                     <strong>{discussion.title}</strong>
-                    <p>
-                      {discussion.is_pinned ? "Pinned · " : ""}
-                      {discussion.reply_count || 0} replies ·{" "}
-                      {discussion.is_locked ? "Locked" : "Open"}
-                    </p>
+                    <div className="community-conversation-context">
+                      <span>COMMUNITY</span>
+                      <span>{selectedCategory.name}</span>
+                      {discussion.is_pinned && <span>PINNED</span>}
+                      {discussion.is_locked && <span>LOCKED</span>}
+                    </div>
                   </div>
-                  <div className="community-card-actions">
-                    <button
-                      type="button"
-                      className="community-secondary-button"
-                      onClick={() =>
-                        openDiscussion?.(
-                          {
-                            id: discussion.id,
-                            discussionType: discussion.discussion_type,
-                            sectionId: null,
-                            section: selectedCommunity.name,
-                            instrumentId: null,
-                            instrument: discussion.title,
-                            instrumentName: selectedCategory.name,
-                            segmentType: null,
-                            segmentStart: null,
-                            segmentEnd: null,
-                            communityId: discussion.community_id,
-                            communityCategoryId: discussion.community_category_id,
-                            title: discussion.title,
-                            locked: discussion.is_locked || false,
-                            replies: discussion.reply_count || 0,
-                            lastActivityAt: discussion.last_activity_at,
-                          },
-                          {
-                            communityId: selectedCommunity.id,
-                            categoryId: selectedCategory.id,
-                          }
-                        )
-                      }
-                    >
-                      Open Thread
-                    </button>
+                  <div className="community-conversation-stat">
+                    <strong>{discussion.reply_count || 0}</strong>
+                    <span>{discussion.reply_count === 1 ? "post" : "posts"}</span>
                   </div>
-                </article>
+                  <div className="community-conversation-activity">
+                    <strong>{discussion.is_locked ? "Locked" : "Active"}</strong>
+                    <span>Open conversation →</span>
+                  </div>
+                </button>
               ))}
             </div>
           )}
@@ -1355,6 +1439,10 @@ export default function Communities({
     const parentOptions = activeCategories.filter(
       (category) => category.id !== editingCategoryId
     );
+    const canManageCommunity =
+      membership?.role === "OWNER" ||
+      membership?.role === "ADMIN" ||
+      canManageStructure;
 
     return (
       <section className="communities-page">
@@ -1378,12 +1466,12 @@ export default function Communities({
           <span>{selectedCommunity.name}</span>
         </div>
 
-        <div className="community-detail-hero">
+        <div className="community-detail-hero community-detail-hero-managed">
           <div className="community-detail-mark">
             {selectedCommunity.name?.[0]?.toUpperCase() || "C"}
           </div>
 
-          <div>
+          <div className="community-detail-copy">
             <span className="eyebrow">DWMY COMMUNITY</span>
             <h1>{selectedCommunity.name}</h1>
             <p>
@@ -1400,57 +1488,23 @@ export default function Communities({
               </span>
             </div>
           </div>
-        </div>
 
-        <div className="community-detail-toolbar">
-          <button
-            type="button"
-            className="community-secondary-button"
-            onClick={() => {
-              setSelectedCommunity(null);
-              setSelectedCategory(null);
-              setCategories([]);
-              setCommunityDiscussions([]);
-              setShowStructureManager(false);
-              setCanManageStructure(false);
-              setCanCreateDiscussion(false);
-            }}
-          >
-            ← All Communities
-          </button>
-
-          <button
-            type="button"
-            className="community-secondary-button"
-            onClick={() => {
-              setCommunityView("forum");
-              setShowStructureManager(false);
-            }}
-            disabled={communityView === "forum" && !showStructureManager}
-          >
-            Forum
-          </button>
-
-          <button
-            type="button"
-            className="community-secondary-button"
-            onClick={openMembers}
-            disabled={communityView === "members"}
-          >
-            Members
-          </button>
-
-          {canManageStructure && (
+          {canManageCommunity && (
             <button
               type="button"
-              className="community-secondary-button"
-              onClick={() => {
-                resetCategoryForm();
-                setCommunityView("forum");
-                setShowStructureManager((value) => !value);
+              className="community-secondary-button community-manage-button"
+              onClick={async () => {
+                setShowStructureManager(false);
+                if (communityView === "manage") {
+                  setCommunityView("forum");
+                } else {
+                  setCommunityView("manage");
+                  await loadCommunityMembership(selectedCommunity);
+                  window.scrollTo(0, 0);
+                }
               }}
             >
-              {showStructureManager ? "Close Structure Manager" : "Manage Structure"}
+              {communityView === "manage" ? "Close Management" : "Manage Community"}
             </button>
           )}
         </div>
@@ -1458,8 +1512,69 @@ export default function Communities({
         {notice && <div className="community-message success">{notice}</div>}
         {error && <div className="community-message error">{error}</div>}
 
+        {communityView === "manage" && (
+          <section className="community-section community-management">
+            <div className="community-section-heading">
+              <div>
+                <span className="eyebrow">COMMUNITY ADMIN</span>
+                <h2>Manage Community</h2>
+                <p className="community-section-copy">
+                  Manage the people and structure behind {selectedCommunity.name}.
+                </p>
+              </div>
+            </div>
+
+            <div className="community-management-grid">
+              <button
+                type="button"
+                className="community-management-card"
+                onClick={openMembers}
+              >
+                <span className="eyebrow">MEMBERSHIP</span>
+                <strong>Members & Invitations</strong>
+                <p>Members, roles, invitations, and membership requests.</p>
+                <span className="community-management-arrow">→</span>
+              </button>
+
+              {canManageStructure && (
+                <button
+                  type="button"
+                  className="community-management-card"
+                  onClick={() => {
+                    resetCategoryForm();
+                    setShowStructureManager(true);
+                    setCommunityView("forum");
+                    window.scrollTo(0, 0);
+                  }}
+                >
+                  <span className="eyebrow">ORGANIZATION</span>
+                  <strong>Conversation Structure</strong>
+                  <p>Create, edit, order, archive, and restore conversation categories.</p>
+                  <span className="community-management-arrow">→</span>
+                </button>
+              )}
+
+              <div className="community-management-card community-management-card-future">
+                <span className="eyebrow">COMING LATER</span>
+                <strong>Community Settings</strong>
+                <p>Branding, markets, live chat, moderation, and page layout will live here.</p>
+              </div>
+            </div>
+          </section>
+        )}
+
         {communityView === "members" && (
           <section className="community-section">
+            <button
+              type="button"
+              className="community-inline-back"
+              onClick={() => {
+                setCommunityView("manage");
+                window.scrollTo(0, 0);
+              }}
+            >
+              ← Manage Community
+            </button>
             <div className="community-section-heading">
               <div>
                 <span className="eyebrow">COMMUNITY MEMBERSHIP</span>
@@ -1562,7 +1677,8 @@ export default function Communities({
                   </section>
                 )}
 
-                {(membership?.role === "OWNER" ||
+                {(canInviteMembers ||
+                  membership?.role === "OWNER" ||
                   membership?.role === "ADMIN") && (
                   <section className="community-create-panel" style={{ marginTop: 22 }}>
                     <div className="community-create-heading">
@@ -1572,6 +1688,8 @@ export default function Communities({
                       </div>
                     </div>
 
+                    {canInviteMembers && (
+                      <>
                     <form onSubmit={inviteExistingUser}>
                       <div className="community-form-grid">
                         <label>
@@ -1625,32 +1743,102 @@ export default function Communities({
                         </button>
                       </div>
                     </form>
+                      </>
+                    )}
 
-                    {communityInvitations.length > 0 && (
+                    {communityInvitations.some(
+                      (invitation) => invitation.status === "PENDING"
+                    ) && (
                       <div style={{ marginTop: 22 }}>
-                        <span className="eyebrow">INVITATION HISTORY</span>
+                        <span className="eyebrow">OPEN INVITATIONS</span>
                         <div className="community-category-list">
-                          {communityInvitations.map((invitation) => (
-                            <article
-                              className="community-category"
-                              key={`invite-${invitation.id}`}
-                            >
-                              <div>
-                                <strong>
-                                  {invitation.invitee_email ||
-                                    invitation.invitee_user_id ||
-                                    "DWMY user"}
-                                </strong>
-                                <p>
-                                  {invitation.status} · expires{" "}
-                                  {new Date(invitation.expires_at).toLocaleDateString()}
-                                </p>
-                              </div>
-                            </article>
-                          ))}
+                          {communityInvitations
+                            .filter((invitation) => invitation.status === "PENDING")
+                            .map((invitation) => (
+                              <article
+                                className="community-category"
+                                key={`invite-${invitation.id}`}
+                              >
+                                <div>
+                                  <strong>
+                                    {invitation.invitee_email ||
+                                      (invitation.inviteeProfile?.username
+                                        ? `@${invitation.inviteeProfile.username}`
+                                        : invitation.inviteeProfile?.display_name) ||
+                                      "DWMY user"}
+                                  </strong>
+                                  <p>
+                                    PENDING · expires{" "}
+                                    {new Date(invitation.expires_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                {canInviteMembers && (
+                                  <button
+                                    type="button"
+                                    className="community-secondary-button"
+                                    disabled={revokeInvitationBusyId === invitation.id}
+                                    onClick={() => revokeCommunityInvitation(invitation)}
+                                  >
+                                    {revokeInvitationBusyId === invitation.id
+                                      ? "Revoking..."
+                                      : "Revoke"}
+                                  </button>
+                                )}
+                              </article>
+                            ))}
                         </div>
                       </div>
                     )}
+
+                    {(membership?.role === "OWNER" || membership?.role === "ADMIN") &&
+                      communityInvitations.some(
+                        (invitation) => invitation.status !== "PENDING"
+                      ) && (
+                        <div style={{ marginTop: 22 }}>
+                          <button
+                            type="button"
+                            className="community-secondary-button"
+                            onClick={() =>
+                              setShowInvitationHistory((current) => !current)
+                            }
+                          >
+                            {showInvitationHistory ? "▾" : "▸"} Invitation History ({
+                              communityInvitations.filter(
+                                (invitation) => invitation.status !== "PENDING"
+                              ).length
+                            })
+                          </button>
+
+                          {showInvitationHistory && (
+                            <div className="community-category-list" style={{ marginTop: 12 }}>
+                              {communityInvitations
+                                .filter((invitation) => invitation.status !== "PENDING")
+                                .map((invitation) => (
+                                  <article
+                                    className="community-category"
+                                    key={`invite-history-${invitation.id}`}
+                                  >
+                                    <div>
+                                      <strong>
+                                        {invitation.invitee_email ||
+                                          (invitation.inviteeProfile?.username
+                                            ? `@${invitation.inviteeProfile.username}`
+                                            : invitation.inviteeProfile?.display_name) ||
+                                          "DWMY user"}
+                                      </strong>
+                                      <p>
+                                        {invitation.status} ·{" "}
+                                        {new Date(
+                                          invitation.responded_at || invitation.created_at
+                                        ).toLocaleDateString()}
+                                      </p>
+                                    </div>
+                                  </article>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                   </section>
                 )}
 
@@ -1731,6 +1919,17 @@ export default function Communities({
 
         {communityView === "forum" && showStructureManager && canManageStructure && (
           <section className="community-create-panel">
+            <button
+              type="button"
+              className="community-inline-back"
+              onClick={() => {
+                setShowStructureManager(false);
+                setCommunityView("manage");
+                window.scrollTo(0, 0);
+              }}
+            >
+              ← Manage Community
+            </button>
             <div className="community-create-heading">
               <div>
                 <span className="eyebrow">COMMUNITY ADMIN</span>
@@ -1955,79 +2154,208 @@ export default function Communities({
         )}
 
         {communityView === "forum" && (
-        <section className="community-section">
-          <div className="community-section-heading">
-            <div>
-              <span className="eyebrow">STRUCTURE</span>
-              <h2>Community Forum</h2>
-            </div>
-            {canManageStructure && (
-              <span className="community-result-count">
-                {activeCategories.length} active
-                {archivedCategories.length > 0
-                  ? ` · ${archivedCategories.length} archived`
-                  : ""}
-              </span>
-            )}
-          </div>
+          <>
+            {activeCategories.length > 0 ? (
+              <section className="community-section community-browse-section">
+                <div className="community-section-heading">
+                  <div>
+                    <span className="eyebrow">BROWSE</span>
+                    <h2>Conversation Categories</h2>
+                    <p className="community-section-copy">
+                      Choose a category to browse and start conversations.
+                    </p>
+                  </div>
+                  {canManageStructure && (
+                    <span className="community-result-count">
+                      {activeCategories.length} active
+                      {archivedCategories.length > 0
+                        ? ` · ${archivedCategories.length} archived`
+                        : ""}
+                    </span>
+                  )}
+                </div>
 
-          {communityLoading ? (
-            <div className="community-empty">Loading community...</div>
-          ) : rootCategories.length === 0 ? (
-            <div className="community-empty">
-              <strong>No categories yet.</strong>
-              <span>
-                {canManageStructure
-                  ? "Use Manage Structure to create the first category."
-                  : "This Community has not created its forum structure yet."}
-              </span>
-            </div>
-          ) : (
-            <div className="community-category-list">
-              {rootCategories.map((category) => {
-                const children = activeCategories.filter(
-                  (candidate) =>
-                    candidate.parent_category_id === category.id
-                );
+                <div className="community-navigation-grid">
+                  {rootCategories.map((category) => {
+                    const children = activeCategories.filter(
+                      (candidate) => candidate.parent_category_id === category.id
+                    );
 
-                return (
-                  <article className="community-category" key={category.id}>
-                    <div>
+                    return (
+                      <article className="community-navigation-card" key={category.id}>
+                        <button
+                          type="button"
+                          className="community-navigation-primary"
+                          onClick={() => openCategory(category)}
+                        >
+                          <div>
+                            <span className="community-navigation-kicker">CATEGORY</span>
+                            <strong>{category.name}</strong>
+                            <p>{category.description || "Community conversations"}</p>
+                          </div>
+                          <span className="community-navigation-arrow">→</span>
+                        </button>
+
+                        {children.length > 0 && (
+                          <div className="community-navigation-children">
+                            {children.map((child) => (
+                              <button
+                                type="button"
+                                key={child.id}
+                                onClick={() => openCategory(child)}
+                              >
+                                <div>
+                                  <span>SUBCATEGORY</span>
+                                  <strong>{child.name}</strong>
+                                </div>
+                                <span>→</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : (
+              <section className="community-section community-conversations-section">
+                <div className="community-section-heading community-conversations-heading">
+                  <div>
+                    <span className="eyebrow">COMMUNITY CONVERSATIONS</span>
+                    <h2>Conversations</h2>
+                    <p className="community-section-copy">
+                      Conversations inside {selectedCommunity.name}.
+                    </p>
+                  </div>
+                  <div className="community-heading-actions">
+                    <span className="community-result-count">
+                      {communityDiscussions.filter((discussion) => discussion.community_category_id == null).length} active
+                    </span>
+                    {canCreateDiscussion && (
                       <button
                         type="button"
-                        className="community-secondary-button"
-                        onClick={() => openCategory(category)}
-                        style={{ marginBottom: 8 }}
+                        className="primary-button"
+                        onClick={() => {
+                          setShowDiscussionCreate((value) => !value);
+                          setDiscussionTitle("");
+                          setError("");
+                        }}
                       >
-                        {category.name}
+                        {showDiscussionCreate ? "Close" : "+ New Conversation"}
                       </button>
-                      <p>
-                        {category.description ||
-                          "Community discussion category"}
-                      </p>
-                    </div>
-
-                    {children.length > 0 && (
-                      <div className="community-subcategories">
-                        {children.map((child) => (
-                          <button
-                            type="button"
-                            className="community-secondary-button"
-                            key={child.id}
-                            onClick={() => openCategory(child)}
-                            title={`Community > ${selectedCommunity.name} > ${category.name} > ${child.name}`}
-                          >
-                            {child.name}
-                          </button>
-                        ))}
-                      </div>
                     )}
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                  </div>
+                </div>
+
+                {canCreateDiscussion && showDiscussionCreate && (
+                  <form
+                    className="community-create-panel community-create-panel-compact"
+                    onSubmit={createCommunityDiscussion}
+                  >
+                    <div className="community-create-heading community-create-heading-compact">
+                      <div>
+                        <span className="eyebrow">NEW CONVERSATION</span>
+                        <h2>Start a Conversation</h2>
+                      </div>
+                    </div>
+                    <div className="community-form-grid community-form-grid-compact">
+                      <label className="community-form-wide">
+                        <span>Title</span>
+                        <input
+                          autoFocus
+                          value={discussionTitle}
+                          maxLength={200}
+                          onChange={(event) => setDiscussionTitle(event.target.value)}
+                          placeholder="Conversation title"
+                        />
+                      </label>
+                    </div>
+                    <div className="community-create-footer community-create-footer-compact">
+                      <small>Conversation in {selectedCommunity.name}.</small>
+                      <div className="community-create-actions">
+                        <button
+                          type="button"
+                          className="community-secondary-button"
+                          onClick={() => {
+                            setShowDiscussionCreate(false);
+                            setDiscussionTitle("");
+                            setError("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" className="primary-button" disabled={discussionCreating}>
+                          {discussionCreating ? "Creating..." : "Create Conversation"}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
+
+                {communityLoading ? (
+                  <div className="community-empty">Loading conversations...</div>
+                ) : communityDiscussions.filter((discussion) => discussion.community_category_id == null).length === 0 ? (
+                  <div className="community-empty">
+                    <strong>No conversations yet.</strong>
+                    <span>{canCreateDiscussion ? "Start the first conversation in this Community." : "This Community does not have any conversations yet."}</span>
+                  </div>
+                ) : (
+                  <div className="community-conversation-list">
+                    {communityDiscussions
+                      .filter((discussion) => discussion.community_category_id == null)
+                      .map((discussion) => (
+                        <button
+                          type="button"
+                          className="community-conversation-card"
+                          key={discussion.id}
+                          onClick={() =>
+                            openDiscussion?.(
+                              {
+                                id: discussion.id,
+                                discussionType: discussion.discussion_type,
+                                sectionId: null,
+                                section: selectedCommunity.name,
+                                instrumentId: null,
+                                instrument: discussion.title,
+                                instrumentName: selectedCommunity.name,
+                                segmentType: null,
+                                segmentStart: null,
+                                segmentEnd: null,
+                                communityId: discussion.community_id,
+                                communityCategoryId: null,
+                                title: discussion.title,
+                                locked: discussion.is_locked || false,
+                                replies: discussion.reply_count || 0,
+                                lastActivityAt: discussion.last_activity_at,
+                              },
+                              { communityId: selectedCommunity.id, categoryId: null }
+                            )
+                          }
+                        >
+                          <div className="community-conversation-main">
+                            <strong>{discussion.title}</strong>
+                            <div className="community-conversation-context">
+                              <span>COMMUNITY</span>
+                              {discussion.is_pinned && <span>PINNED</span>}
+                              {discussion.is_locked && <span>LOCKED</span>}
+                            </div>
+                          </div>
+                          <div className="community-conversation-stat">
+                            <strong>{discussion.reply_count || 0}</strong>
+                            <span>{discussion.reply_count === 1 ? "post" : "posts"}</span>
+                          </div>
+                          <div className="community-conversation-activity">
+                            <strong>{discussion.is_locked ? "Locked" : "Active"}</strong>
+                            <span>Open conversation →</span>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </section>
+            )}
+          </>
         )}
       </section>
     );
