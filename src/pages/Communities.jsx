@@ -173,6 +173,9 @@ export default function Communities({
   const [communityMarketHistory, setCommunityMarketHistory] = useState([]);
   const [communityMarketHistoryLoading, setCommunityMarketHistoryLoading] = useState(false);
   const [communityMarketOpening, setCommunityMarketOpening] = useState(false);
+  const [communityMarketStatsWindow, setCommunityMarketStatsWindow] = useState("7D");
+  const [communityMarketStats, setCommunityMarketStats] = useState(null);
+  const [communityMarketStatsLoading, setCommunityMarketStatsLoading] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -579,6 +582,37 @@ export default function Communities({
     setCommunityMarketBusyId(null);
   }
 
+  async function loadCommunityMarketStatsFor(
+    community,
+    market,
+    statsWindow = communityMarketStatsWindow
+  ) {
+    if (!community || !market) return;
+
+    setCommunityMarketStatsLoading(true);
+    const lookbackDays =
+      statsWindow === "7D" ? 7 : statsWindow === "30D" ? 30 : 36500;
+
+    const { data, error: statsError } = await supabase.rpc(
+      "get_community_instrument_statistics",
+      {
+        target_community_id: community.id,
+        target_instrument_id: market.instrument.id,
+        lookback_days: lookbackDays,
+        trader_limit: 5,
+      }
+    );
+
+    if (statsError) {
+      console.error("Community instrument statistics load failed:", statsError);
+      setCommunityMarketStats(null);
+    } else {
+      setCommunityMarketStats(data || null);
+    }
+
+    setCommunityMarketStatsLoading(false);
+  }
+
   async function loadCommunityMarketHistoryFor(community, market, segment) {
     if (!community || !market) return;
     setCommunityMarketHistoryLoading(true); setError("");
@@ -594,8 +628,13 @@ export default function Communities({
 
   async function openCommunityMarket(section,instrument){
     const market={section,instrument}; setSelectedCommunityMarket(market);
-    setCommunityMarketSegment("DAY"); setCommunityView("instrument"); setNotice(""); setError("");
-    await loadCommunityMarketHistoryFor(selectedCommunity,market,"DAY"); window.scrollTo(0,0);
+    setCommunityMarketSegment("DAY"); setCommunityMarketStatsWindow("7D");
+    setCommunityView("instrument"); setNotice(""); setError("");
+    await Promise.all([
+      loadCommunityMarketHistoryFor(selectedCommunity,market,"DAY"),
+      loadCommunityMarketStatsFor(selectedCommunity,market,"7D")
+    ]);
+    window.scrollTo(0,0);
   }
 
   function cmPayload(d,market,title,replyOnly=false){return {...d,discussionType:d.discussion_type,sectionId:market.section.id,section:market.section.name,instrumentId:market.instrument.id,instrument:market.instrument.symbol,instrumentName:market.instrument.name,segmentType:d.segment_type,segmentStart:d.segment_start,segmentEnd:d.segment_end,communityId:selectedCommunity.id,communityCategoryId:null,communityName:selectedCommunity.name,title,replies:d.reply_count||0,lastActivity:d.last_activity_at,marketReplyOnly:replyOnly};}
@@ -612,8 +651,23 @@ export default function Communities({
     try{
       const {data,error:rpcError}=await supabase.rpc("get_or_create_community_market_discussion",{target_community_id:selectedCommunity.id,target_instrument_id:selectedCommunityMarket.instrument.id,target_segment_type:communityMarketSegment,target_segment_start:active.start,target_segment_end:active.end});
       if(rpcError)throw rpcError; const id=Array.isArray(data)?data[0]:data; if(!id)throw new Error("Community market discussion was not returned.");
-      const {data:d,error:e}=await supabase.from("discussions").select("id,discussion_type,community_id,community_category_id,section_id,instrument_id,segment_type,segment_start,segment_end,created_by,created_at,last_activity_at,reply_count,is_locked,is_deleted").eq("id",id).single();
-      if(e)throw e;
+      // The RPC already authoritatively returns the discussion id. Do not make a
+      // second client SELECT before routing; that extra round-trip can fail or lag
+      // under RLS even though creation succeeded.
+      const d={
+        id,
+        discussion_type:"COMMUNITY",
+        community_id:selectedCommunity.id,
+        community_category_id:null,
+        section_id:selectedCommunityMarket.section.id,
+        instrument_id:selectedCommunityMarket.instrument.id,
+        segment_type:communityMarketSegment,
+        segment_start:active.start,
+        segment_end:active.end,
+        reply_count:0,
+        is_locked:false,
+        is_deleted:false
+      };
       openDiscussion?.(cmPayload(d,selectedCommunityMarket,cmTitle(selectedCommunityMarket.instrument.symbol,communityMarketSegment,active.start),false),{communityId:selectedCommunity.id,communityMarket:{sectionId:selectedCommunityMarket.section.id,instrumentId:selectedCommunityMarket.instrument.id,segment:communityMarketSegment}});
     }catch(err){console.error("Community market discussion open failed:",err);setError(err.message||"Unable to open this Community market discussion.");}
     finally{setCommunityMarketOpening(false);}
@@ -1743,7 +1797,82 @@ export default function Communities({
           <section className="community-section community-instrument-page">
             <button type="button" className="community-inline-back" onClick={()=>{setCommunityView("forum");setSelectedCommunityMarket(null);setCommunityMarketHistory([]);window.scrollTo(0,0);}}>← {selectedCommunity.name}</button>
             <nav className="market-breadcrumb"><span>{selectedCommunityMarket.section.name}</span><span>&gt;</span><strong>{selectedCommunityMarket.instrument.symbol}</strong><span>&gt;</span><strong>{communityMarketSegment}</strong></nav>
-            <div className="instrument-hero community-instrument-hero"><div className="instrument-identity"><span className="eyebrow">{selectedCommunity.name} · {selectedCommunityMarket.section.name}</span><h1>{selectedCommunityMarket.instrument.symbol}</h1><p>{selectedCommunityMarket.instrument.name}</p></div></div>
+            <div className="instrument-hero community-instrument-hero">
+              <div className="instrument-identity">
+                <span className="eyebrow">{selectedCommunity.name} · {selectedCommunityMarket.section.name}</span>
+                <h1>{selectedCommunityMarket.instrument.symbol}</h1>
+                <p>{selectedCommunityMarket.instrument.name}</p>
+              </div>
+
+              <div className="instrument-stats-panel">
+                <div className="instrument-stats-head">
+                  <div>
+                    <span className="eyebrow">Community Market Activity</span>
+                    <strong>Instrument Statistics</strong>
+                  </div>
+                  <div className="instrument-stats-windows">
+                    {["7D", "30D", "ALL"].map((windowName) => (
+                      <button
+                        type="button"
+                        key={windowName}
+                        className={communityMarketStatsWindow === windowName ? "active" : ""}
+                        onClick={async () => {
+                          setCommunityMarketStatsWindow(windowName);
+                          await loadCommunityMarketStatsFor(
+                            selectedCommunity,
+                            selectedCommunityMarket,
+                            windowName
+                          );
+                        }}
+                      >
+                        {windowName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {communityMarketStatsLoading ? (
+                  <div className="instrument-stats-loading">Measuring activity...</div>
+                ) : communityMarketStats ? (
+                  <>
+                    <div className="instrument-stat-grid">
+                      <div><strong>{communityMarketStats.contribution_count || 0}</strong><span>Contributions</span></div>
+                      <div><strong>{communityMarketStats.trader_count || 0}</strong><span>Traders</span></div>
+                      <div><strong>{communityMarketStats.discussion_count || 0}</strong><span>Discussions</span></div>
+                      <div><strong>{communityMarketStats.latest_activity_at ? new Date(communityMarketStats.latest_activity_at).toLocaleDateString() : "—"}</strong><span>Latest</span></div>
+                    </div>
+
+                    <div className="instrument-resolution-stats">
+                      {["DAY", "WEEK", "MONTH", "YEAR"].map((resolution) => (
+                        <div key={resolution}>
+                          <span>{resolution}</span>
+                          <strong>{communityMarketStats.resolutions?.[resolution] || 0}</strong>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="instrument-top-traders">
+                      <div className="instrument-top-traders-title">
+                        <span>Top Traders</span>
+                        <small>{communityMarketStatsWindow} CONTRIBUTIONS</small>
+                      </div>
+                      {(communityMarketStats.top_traders || []).length ? (
+                        communityMarketStats.top_traders.map((trader,index) => (
+                          <div className="instrument-top-trader" key={trader.user_id}>
+                            <span><b>{index + 1}</b>{trader.display_name || trader.username}</span>
+                            <strong>{trader.contributions}</strong>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="instrument-stats-empty">No contributions in this window.</div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="instrument-stats-empty">Statistics unavailable.</div>
+                )}
+              </div>
+            </div>
             <div className="segment-selector">{COMMUNITY_MARKET_SEGMENTS.map((item)=><button type="button" key={item} className={communityMarketSegment===item?"active":""} onClick={async()=>{setCommunityMarketSegment(item);setError("");await loadCommunityMarketHistoryFor(selectedCommunity,selectedCommunityMarket,item);}}>{item}</button>)}</div>
             {activeCMPeriod ? <section className="period-card"><div><span className="type-label">ACTIVE {communityMarketSegment} COMMUNITY DISCUSSION</span><h2>{activeCMTitle}</h2><p>{communityMarketSegment==="DAY"?"FX trade day · 5:00 PM to 4:59 PM ET.":communityMarketSegment==="WEEK"?"Weekly discussion remains active through Friday 4:59 PM ET.":`Scoped to ${selectedCommunity.name} using the canonical DWMY market period.`}</p></div><button type="button" className="primary-button" onClick={getOrCreateCommunityMarketDiscussion} disabled={communityMarketOpening}>{communityMarketOpening?"Opening...":"Open Discussion ->"}</button></section>
             : <section className="market-closed-card"><span className="type-label">MARKET CLOSED</span><h2>Enjoy your weekend.</h2><p>No weekend daily thread is created. The next daily discussion opens Sunday at 5:00 PM ET.</p></section>}

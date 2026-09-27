@@ -223,8 +223,17 @@ export default function Discussion({
   const isConversation =
     discussion.discussionType === "CONVERSATION";
 
+  // Public market rooms use MARKET_SEGMENT. Community market rooms deliberately
+  // remain COMMUNITY rows, but an instrument + segment coordinate makes them a
+  // market discussion for rendering and archive/reply-only behavior.
+  const isCommunityMarket =
+    discussion.discussionType === "COMMUNITY" &&
+    Boolean(discussion.instrumentId ?? discussion.instrument_id) &&
+    Boolean(discussion.segmentType ?? discussion.segment_type);
+
   const isMarketSegment =
-    discussion.discussionType === "MARKET_SEGMENT";
+    discussion.discussionType === "MARKET_SEGMENT" ||
+    isCommunityMarket;
 
   // Archived market state must be derivable inside the discussion itself.
   // Do not rely only on the Instrument page passing marketReplyOnly: a user can
@@ -1211,10 +1220,9 @@ export default function Discussion({
               <h1>{discussion.title}</h1>
 
               <p>
-                Canonical discussion for{" "}
-                {discussion.instrument} /{" "}
-                {discussion.segmentType?.toLowerCase()}{" "}
-                segment
+                {isCommunityMarket
+                  ? `${discussion.communityName || "Community"} discussion for ${discussion.instrument} / ${discussion.segmentType?.toLowerCase()} segment`
+                  : `Canonical discussion for ${discussion.instrument} / ${discussion.segmentType?.toLowerCase()} segment`}
               </p>
             </div>
           </section>
