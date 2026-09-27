@@ -95,6 +95,17 @@ function CommunityCard({
   );
 }
 
+const COMMUNITY_MARKET_SEGMENTS = ["DAY", "WEEK", "MONTH", "YEAR"];
+const COMMUNITY_MARKET_ET_ZONE = "America/New_York";
+function cmParts(date=new Date()){const p=new Intl.DateTimeFormat("en-US",{timeZone:COMMUNITY_MARKET_ET_ZONE,year:"numeric",month:"2-digit",day:"2-digit",weekday:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(date);return Object.fromEntries(p.map(x=>[x.type,x.value]));}
+function cmISO(y,m,d){return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
+function cmParse(v){const [y,m,d]=String(v).split("-").map(Number);return new Date(Date.UTC(y,m-1,d,12));}
+function cmShift(v,n){const d=cmParse(v);d.setUTCDate(d.getUTCDate()+n);return cmISO(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate());}
+function cmMonday(v){const d=cmParse(v),x=d.getUTCDay();return cmShift(v,-(x===0?6:x-1));}
+function cmPeriod(segment,now=new Date()){const e=cmParts(now),today=cmISO(+e.year,+e.month,+e.day),h=+e.hour,min=+e.minute,after=h>17||(h===17&&min>=0),w=e.weekday;if(segment==="DAY"){if(w==="Sat")return null;if(w==="Sun")return after?{start:cmShift(today,1),end:cmShift(today,1)}:null;if(w==="Fri"&&after)return null;const start=after?cmShift(today,1):today;return{start,end:start};}if(segment==="WEEK"){let start=cmMonday(today);if(w==="Fri"&&after)start=cmShift(start,7);if(w==="Sat"||w==="Sun")start=cmShift(cmMonday(today),7);return{start,end:cmShift(start,4)};}const y=+e.year,m=+e.month;if(segment==="MONTH"){const end=new Date(Date.UTC(y,m,0,12));return{start:cmISO(y,m,1),end:cmISO(y,m,end.getUTCDate())};}return{start:cmISO(y,1,1),end:cmISO(y,12,31)};}
+function cmTitle(symbol,segment,start){const d=cmParse(start),o={timeZone:"UTC"};if(segment==="DAY")return `${symbol} - ${d.toLocaleDateString(undefined,{...o,month:"long",day:"numeric",year:"numeric"})}`;if(segment==="WEEK")return `${symbol} - Week of ${d.toLocaleDateString(undefined,{...o,month:"long",day:"numeric",year:"numeric"})}`;if(segment==="MONTH")return `${symbol} - ${d.toLocaleDateString(undefined,{...o,month:"long",year:"numeric"})}`;return `${symbol} - ${String(start).slice(0,4)}`;}
+function cmStatus(start,active){if(!active)return"ARCHIVED";if(start===active.start)return"ACTIVE";return start<active.start?"ARCHIVED":"UPCOMING";}
+
 export default function Communities({
   user,
   openDiscussion,
@@ -149,6 +160,19 @@ export default function Communities({
   const [inviteEmail, setInviteEmail] = useState("");
   const [myCommunityInvitations, setMyCommunityInvitations] = useState([]);
   const [invitationBusyId, setInvitationBusyId] = useState(null);
+
+  // Communities V1.6.3B — canonical Community Market selection.
+  const [communityMarketSections, setCommunityMarketSections] = useState([]);
+  const [communityMarketGroups, setCommunityMarketGroups] = useState([]);
+  const [communityMarketEnabledIds, setCommunityMarketEnabledIds] = useState(new Set());
+  const [communityMarketsLoading, setCommunityMarketsLoading] = useState(false);
+  const [communityMarketBusyId, setCommunityMarketBusyId] = useState(null);
+  const [communityMarketQuery, setCommunityMarketQuery] = useState("");
+  const [selectedCommunityMarket, setSelectedCommunityMarket] = useState(null);
+  const [communityMarketSegment, setCommunityMarketSegment] = useState("DAY");
+  const [communityMarketHistory, setCommunityMarketHistory] = useState([]);
+  const [communityMarketHistoryLoading, setCommunityMarketHistoryLoading] = useState(false);
+  const [communityMarketOpening, setCommunityMarketOpening] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -399,11 +423,15 @@ export default function Communities({
     setCommunityView("forum");
     setEditingCategoryId(null);
     setSelectedCategory(null);
+    setSelectedCommunityMarket(null);
+    setCommunityMarketSegment("DAY");
+    setCommunityMarketHistory([]);
     setCommunityDiscussions([]);
     setDiscussionTitle("");
 
-    const [, permissionResult, createDiscussionPermission, discussionResult] = await Promise.all([
+    const [, , permissionResult, createDiscussionPermission, discussionResult] = await Promise.all([
       loadCommunityCategories(community.id),
+      loadCommunityMarkets(community),
       supabase.rpc("has_community_permission", {
         target_community_id: community.id,
         requested_permission: "MANAGE_STRUCTURE",
@@ -419,6 +447,7 @@ export default function Communities({
         )
         .eq("discussion_type", "COMMUNITY")
         .eq("community_id", community.id)
+        .is("instrument_id", null)
         .eq("is_deleted", false)
         .order("is_pinned", { ascending: false })
         .order("last_activity_at", { ascending: false }),
@@ -450,6 +479,144 @@ export default function Communities({
 
     setCommunityLoading(false);
     window.scrollTo(0, 0);
+  }
+
+  async function loadCommunityMarkets(community = selectedCommunity) {
+    if (!community) return;
+
+    setCommunityMarketsLoading(true);
+    setError("");
+
+    const [sectionResult, groupResult, enabledResult] = await Promise.all([
+      supabase
+        .from("sections")
+        .select(`
+          id, section_type, slug, name, description, sort_order, is_active,
+          instruments (
+            id, section_id, group_id, symbol, slug, name, description, sort_order, is_active
+          )
+        `)
+        .eq("section_type", "MARKET")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("market_groups")
+        .select("id, section_id, name, slug, description, sort_order, is_active")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("community_market_instruments")
+        .select("instrument_id, is_enabled")
+        .eq("community_id", community.id),
+    ]);
+
+    const firstError =
+      sectionResult.error || groupResult.error || enabledResult.error;
+
+    if (firstError) {
+      console.error("Community market configuration load failed:", firstError);
+      setError(firstError.message);
+      setCommunityMarketSections([]);
+      setCommunityMarketGroups([]);
+      setCommunityMarketEnabledIds(new Set());
+      setCommunityMarketsLoading(false);
+      return;
+    }
+
+    setCommunityMarketSections(
+      (sectionResult.data || []).map((section) => ({
+        ...section,
+        instruments: (section.instruments || [])
+          .filter((instrument) => instrument.is_active)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
+      }))
+    );
+    setCommunityMarketGroups(groupResult.data || []);
+    setCommunityMarketEnabledIds(
+      new Set(
+        (enabledResult.data || [])
+          .filter((row) => row.is_enabled)
+          .map((row) => row.instrument_id)
+      )
+    );
+    setCommunityMarketsLoading(false);
+  }
+
+  async function toggleCommunityMarket(instrument) {
+    if (!selectedCommunity || communityMarketBusyId) return;
+
+    const nextEnabled = !communityMarketEnabledIds.has(instrument.id);
+    setCommunityMarketBusyId(instrument.id);
+    setError("");
+    setNotice("");
+
+    const { error: marketError } = await supabase.rpc(
+      "set_community_market_instrument",
+      {
+        target_community_id: selectedCommunity.id,
+        target_instrument_id: instrument.id,
+        target_enabled: nextEnabled,
+      }
+    );
+
+    if (marketError) {
+      console.error("Community market update failed:", marketError);
+      setError(marketError.message);
+      setCommunityMarketBusyId(null);
+      return;
+    }
+
+    setCommunityMarketEnabledIds((current) => {
+      const next = new Set(current);
+      if (nextEnabled) next.add(instrument.id);
+      else next.delete(instrument.id);
+      return next;
+    });
+
+    setNotice(
+      `${instrument.symbol} ${nextEnabled ? "added to" : "removed from"} ${selectedCommunity.name}.`
+    );
+    setCommunityMarketBusyId(null);
+  }
+
+  async function loadCommunityMarketHistoryFor(community, market, segment) {
+    if (!community || !market) return;
+    setCommunityMarketHistoryLoading(true); setError("");
+    const { data, error: historyError } = await supabase.from("discussions")
+      .select("id,discussion_type,community_id,community_category_id,section_id,instrument_id,segment_type,segment_start,segment_end,created_by,created_at,last_activity_at,reply_count,is_locked,is_deleted")
+      .eq("discussion_type","COMMUNITY").eq("community_id",community.id)
+      .eq("instrument_id",market.instrument.id).eq("segment_type",segment)
+      .eq("is_deleted",false).order("segment_start",{ascending:false}).limit(60);
+    if(historyError){console.error("Community market history load failed:",historyError);setError(historyError.message);setCommunityMarketHistory([]);}
+    else setCommunityMarketHistory(data||[]);
+    setCommunityMarketHistoryLoading(false);
+  }
+
+  async function openCommunityMarket(section,instrument){
+    const market={section,instrument}; setSelectedCommunityMarket(market);
+    setCommunityMarketSegment("DAY"); setCommunityView("instrument"); setNotice(""); setError("");
+    await loadCommunityMarketHistoryFor(selectedCommunity,market,"DAY"); window.scrollTo(0,0);
+  }
+
+  function cmPayload(d,market,title,replyOnly=false){return {...d,discussionType:d.discussion_type,sectionId:market.section.id,section:market.section.name,instrumentId:market.instrument.id,instrument:market.instrument.symbol,instrumentName:market.instrument.name,segmentType:d.segment_type,segmentStart:d.segment_start,segmentEnd:d.segment_end,communityId:selectedCommunity.id,communityCategoryId:null,communityName:selectedCommunity.name,title,replies:d.reply_count||0,lastActivity:d.last_activity_at,marketReplyOnly:replyOnly};}
+
+  function openExistingCommunityMarketDiscussion(d){
+    const active=cmPeriod(communityMarketSegment);
+    openDiscussion?.(cmPayload(d,selectedCommunityMarket,cmTitle(selectedCommunityMarket.instrument.symbol,communityMarketSegment,d.segment_start),cmStatus(d.segment_start,active)==="ARCHIVED"),{communityId:selectedCommunity.id,communityMarket:{sectionId:selectedCommunityMarket.section.id,instrumentId:selectedCommunityMarket.instrument.id,segment:communityMarketSegment}});
+  }
+
+  async function getOrCreateCommunityMarketDiscussion(){
+    if(!selectedCommunity||!selectedCommunityMarket||!user?.id)return;
+    const active=cmPeriod(communityMarketSegment); if(!active)return;
+    setCommunityMarketOpening(true); setError("");
+    try{
+      const {data,error:rpcError}=await supabase.rpc("get_or_create_community_market_discussion",{target_community_id:selectedCommunity.id,target_instrument_id:selectedCommunityMarket.instrument.id,target_segment_type:communityMarketSegment,target_segment_start:active.start,target_segment_end:active.end});
+      if(rpcError)throw rpcError; const id=Array.isArray(data)?data[0]:data; if(!id)throw new Error("Community market discussion was not returned.");
+      const {data:d,error:e}=await supabase.from("discussions").select("id,discussion_type,community_id,community_category_id,section_id,instrument_id,segment_type,segment_start,segment_end,created_by,created_at,last_activity_at,reply_count,is_locked,is_deleted").eq("id",id).single();
+      if(e)throw e;
+      openDiscussion?.(cmPayload(d,selectedCommunityMarket,cmTitle(selectedCommunityMarket.instrument.symbol,communityMarketSegment,active.start),false),{communityId:selectedCommunity.id,communityMarket:{sectionId:selectedCommunityMarket.section.id,instrumentId:selectedCommunityMarket.instrument.id,segment:communityMarketSegment}});
+    }catch(err){console.error("Community market discussion open failed:",err);setError(err.message||"Unable to open this Community market discussion.");}
+    finally{setCommunityMarketOpening(false);}
   }
 
   async function loadCommunityMembership(community = selectedCommunity) {
@@ -1444,6 +1611,66 @@ export default function Communities({
       membership?.role === "ADMIN" ||
       canManageStructure;
 
+    const normalizedMarketQuery = communityMarketQuery.trim().toLowerCase();
+    const communityMarketDirectory = communityMarketSections
+      .map((section) => {
+        const sectionGroups = communityMarketGroups.filter(
+          (group) => group.section_id === section.id
+        );
+        const grouped = sectionGroups
+          .map((group) => ({
+            ...group,
+            instruments: section.instruments.filter(
+              (instrument) => instrument.group_id === group.id
+            ),
+          }))
+          .filter((group) => group.instruments.length);
+
+        const ungrouped = section.instruments.filter(
+          (instrument) => !instrument.group_id
+        );
+        const buckets = [
+          ...grouped,
+          ...(ungrouped.length
+            ? [{
+                id: `ungrouped-${section.id}`,
+                name: "Other",
+                sort_order: 9999,
+                instruments: ungrouped,
+              }]
+            : []),
+        ];
+
+        const filteredBuckets = normalizedMarketQuery
+          ? buckets
+              .map((bucket) => ({
+                ...bucket,
+                instruments: bucket.instruments.filter((instrument) =>
+                  `${instrument.symbol} ${instrument.name} ${section.name} ${bucket.name}`
+                    .toLowerCase()
+                    .includes(normalizedMarketQuery)
+                ),
+              }))
+              .filter((bucket) => bucket.instruments.length)
+          : buckets;
+
+        return { ...section, buckets: filteredBuckets };
+      })
+      .filter((section) => section.buckets.length);
+
+    const enabledCommunityMarketDirectory = communityMarketSections.map((section) => {
+      const enabled = section.instruments.filter((instrument) => communityMarketEnabledIds.has(instrument.id));
+      const grouped = communityMarketGroups.filter((group) => group.section_id === section.id).map((group) => ({
+        ...group, instruments: enabled.filter((instrument) => instrument.group_id === group.id),
+      })).filter((group) => group.instruments.length);
+      const ungrouped = enabled.filter((instrument) => !instrument.group_id);
+      return {...section,buckets:[...grouped,...(ungrouped.length?[{id:`member-other-${section.id}`,name:"Other",instruments:ungrouped}]:[])]};
+    }).filter((section) => section.buckets.length);
+
+    const activeCMPeriod = selectedCommunityMarket ? cmPeriod(communityMarketSegment) : null;
+    const activeCMTitle = selectedCommunityMarket && activeCMPeriod ? cmTitle(selectedCommunityMarket.instrument.symbol,communityMarketSegment,activeCMPeriod.start) : "";
+    const previousCMThreads = communityMarketHistory.filter((item) => !activeCMPeriod || item.segment_start !== activeCMPeriod.start);
+
     return (
       <section className="communities-page">
         <div className="community-breadcrumb">
@@ -1512,6 +1739,20 @@ export default function Communities({
         {notice && <div className="community-message success">{notice}</div>}
         {error && <div className="community-message error">{error}</div>}
 
+        {communityView === "instrument" && selectedCommunityMarket && (
+          <section className="community-section community-instrument-page">
+            <button type="button" className="community-inline-back" onClick={()=>{setCommunityView("forum");setSelectedCommunityMarket(null);setCommunityMarketHistory([]);window.scrollTo(0,0);}}>← {selectedCommunity.name}</button>
+            <nav className="market-breadcrumb"><span>{selectedCommunityMarket.section.name}</span><span>&gt;</span><strong>{selectedCommunityMarket.instrument.symbol}</strong><span>&gt;</span><strong>{communityMarketSegment}</strong></nav>
+            <div className="instrument-hero community-instrument-hero"><div className="instrument-identity"><span className="eyebrow">{selectedCommunity.name} · {selectedCommunityMarket.section.name}</span><h1>{selectedCommunityMarket.instrument.symbol}</h1><p>{selectedCommunityMarket.instrument.name}</p></div></div>
+            <div className="segment-selector">{COMMUNITY_MARKET_SEGMENTS.map((item)=><button type="button" key={item} className={communityMarketSegment===item?"active":""} onClick={async()=>{setCommunityMarketSegment(item);setError("");await loadCommunityMarketHistoryFor(selectedCommunity,selectedCommunityMarket,item);}}>{item}</button>)}</div>
+            {activeCMPeriod ? <section className="period-card"><div><span className="type-label">ACTIVE {communityMarketSegment} COMMUNITY DISCUSSION</span><h2>{activeCMTitle}</h2><p>{communityMarketSegment==="DAY"?"FX trade day · 5:00 PM to 4:59 PM ET.":communityMarketSegment==="WEEK"?"Weekly discussion remains active through Friday 4:59 PM ET.":`Scoped to ${selectedCommunity.name} using the canonical DWMY market period.`}</p></div><button type="button" className="primary-button" onClick={getOrCreateCommunityMarketDiscussion} disabled={communityMarketOpening}>{communityMarketOpening?"Opening...":"Open Discussion ->"}</button></section>
+            : <section className="market-closed-card"><span className="type-label">MARKET CLOSED</span><h2>Enjoy your weekend.</h2><p>No weekend daily thread is created. The next daily discussion opens Sunday at 5:00 PM ET.</p></section>}
+            <section className="market-history"><div className="market-history-heading"><div><span className="eyebrow">COMMUNITY ARCHIVE</span><h2>Previous {communityMarketSegment.toLowerCase()} discussions</h2></div><span>{previousCMThreads.length} available</span></div>
+            {communityMarketHistoryLoading?<div className="market-history-state">Loading discussion history...</div>:previousCMThreads.length===0?<div className="market-history-state">No previous {communityMarketSegment.toLowerCase()} discussions yet.</div>:<div className="market-history-list">{previousCMThreads.map((d)=><button type="button" key={d.id} onClick={()=>openExistingCommunityMarketDiscussion(d)}><span className="history-dot"/><span className="history-copy"><strong>{cmTitle(selectedCommunityMarket.instrument.symbol,communityMarketSegment,d.segment_start)}</strong><small>Archived · replies remain open</small></span><span className="history-meta">{d.reply_count||0} posts&nbsp;&nbsp; &gt;</span></button>)}</div>}</section>
+            {activeCMPeriod&&<div className="coordinate-card"><span>Community market coordinate</span><code>{selectedCommunity.id} + {selectedCommunityMarket.instrument.id} + {communityMarketSegment.toLowerCase()} + {activeCMPeriod.start}</code></div>}
+          </section>
+        )}
+
         {communityView === "manage" && (
           <section className="community-section community-management">
             <div className="community-section-heading">
@@ -1554,12 +1795,124 @@ export default function Communities({
                 </button>
               )}
 
+              {canManageStructure && (
+                <button
+                  type="button"
+                  className="community-management-card"
+                  onClick={async () => {
+                    setCommunityView("markets");
+                    setCommunityMarketQuery("");
+                    await loadCommunityMarkets(selectedCommunity);
+                    window.scrollTo(0, 0);
+                  }}
+                >
+                  <span className="eyebrow">MARKETS</span>
+                  <strong>Community Markets</strong>
+                  <p>Select which administrator-controlled DWMY instruments are available inside this Community.</p>
+                  <span className="community-management-arrow">→</span>
+                </button>
+              )}
+
               <div className="community-management-card community-management-card-future">
                 <span className="eyebrow">COMING LATER</span>
                 <strong>Community Settings</strong>
                 <p>Branding, markets, live chat, moderation, and page layout will live here.</p>
               </div>
             </div>
+          </section>
+        )}
+
+        {communityView === "markets" && canManageStructure && (
+          <section className="community-section community-market-manager">
+            <button
+              type="button"
+              className="community-inline-back"
+              onClick={() => {
+                setCommunityView("manage");
+                setCommunityMarketQuery("");
+                window.scrollTo(0, 0);
+              }}
+            >
+              ← Manage Community
+            </button>
+
+            <div className="community-section-heading">
+              <div>
+                <span className="eyebrow">COMMUNITY MARKETS</span>
+                <h2>Markets</h2>
+                <p className="community-section-copy">
+                  Choose from DWMY's canonical market universe. Communities cannot create instruments.
+                </p>
+              </div>
+              <span className="community-result-count">
+                {communityMarketEnabledIds.size} enabled
+              </span>
+            </div>
+
+            <div className="community-market-manager-toolbar">
+              <input
+                value={communityMarketQuery}
+                onChange={(event) => setCommunityMarketQuery(event.target.value)}
+                placeholder="Filter symbols, markets, or groups..."
+              />
+            </div>
+
+            {communityMarketsLoading ? (
+              <div className="community-empty">Loading canonical markets...</div>
+            ) : communityMarketDirectory.length === 0 ? (
+              <div className="community-empty">
+                <strong>No markets match that filter.</strong>
+              </div>
+            ) : (
+              <div className="community-market-sections">
+                {communityMarketDirectory.map((section) => (
+                  <section className="community-market-section" key={section.id}>
+                    <div className="community-market-section-heading">
+                      <div>
+                        <span className="type-label">MARKET</span>
+                        <h3>{section.name}</h3>
+                      </div>
+                      {section.description && <p>{section.description}</p>}
+                    </div>
+
+                    <div className="community-market-groups">
+                      {section.buckets.map((group) => (
+                        <div className="community-market-group" key={group.id}>
+                          <h4>{group.name}</h4>
+                          <div className="community-market-instruments">
+                            {group.instruments.map((instrument) => {
+                              const enabled =
+                                communityMarketEnabledIds.has(instrument.id);
+                              const busy =
+                                communityMarketBusyId === instrument.id;
+
+                              return (
+                                <button
+                                  type="button"
+                                  className={`community-market-toggle${enabled ? " enabled" : ""}`}
+                                  key={instrument.id}
+                                  onClick={() => toggleCommunityMarket(instrument)}
+                                  disabled={Boolean(communityMarketBusyId)}
+                                  aria-pressed={enabled}
+                                >
+                                  <span className="community-market-toggle-copy">
+                                    <strong>{instrument.symbol}</strong>
+                                    <small>{instrument.name}</small>
+                                  </span>
+                                  <span className="community-market-toggle-state">
+                                    {busy ? "Saving..." : enabled ? "Enabled" : "Available"}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -2353,6 +2706,38 @@ export default function Communities({
                       ))}
                   </div>
                 )}
+              </section>
+            )}
+
+            {enabledCommunityMarketDirectory.length > 0 && (
+              <section className="community-section community-member-markets">
+                <div className="community-section-heading">
+                  <div>
+                    <span className="eyebrow">MARKETS</span>
+                    <h2>Community Markets</h2>
+                    <p className="community-section-copy">DWMY markets enabled for {selectedCommunity.name}.</p>
+                  </div>
+                  <span className="community-result-count">{communityMarketEnabledIds.size} enabled</span>
+                </div>
+                <div className="community-member-market-sections">
+                  {enabledCommunityMarketDirectory.map((section)=>(
+                    <div className="community-member-market-section" key={section.id}>
+                      <div className="community-member-market-section-title"><span className="type-label">MARKET</span><h3>{section.name}</h3></div>
+                      {section.buckets.map((group)=>(
+                        <div className="community-member-market-group" key={group.id}>
+                          <h4>{group.name}</h4>
+                          <div className="community-member-market-grid">
+                            {group.instruments.map((instrument)=>(
+                              <button type="button" key={instrument.id} onClick={()=>openCommunityMarket(section,instrument)}>
+                                <span><strong>{instrument.symbol}</strong><small>{instrument.name}</small></span><span>→</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </section>
             )}
           </>
