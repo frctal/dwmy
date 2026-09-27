@@ -108,6 +108,8 @@ export default function LiveChat({
 
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [removingMessageId, setRemovingMessageId] = useState(null);
+  const [canRemoveMessages, setCanRemoveMessages] = useState(false);
   const [error, setError] = useState("");
 
   const messagesRef = useRef(null);
@@ -120,6 +122,55 @@ export default function LiveChat({
 
       element.scrollTop = element.scrollHeight;
     });
+  }
+
+  async function loadModerationAuthority() {
+    if (!user?.id) {
+      setCanRemoveMessages(false);
+      return;
+    }
+
+    if (normalizedScope === "PUBLIC") {
+      const { data, error: authorityError } = await supabase.rpc(
+        "is_dwmy_admin"
+      );
+
+      if (authorityError) {
+        console.error(
+          "Live Chat moderation authority check failed:",
+          authorityError
+        );
+        setCanRemoveMessages(false);
+        return;
+      }
+
+      setCanRemoveMessages(Boolean(data));
+      return;
+    }
+
+    if (!scopedCommunityId) {
+      setCanRemoveMessages(false);
+      return;
+    }
+
+    const { data, error: authorityError } = await supabase.rpc(
+      "has_community_permission",
+      {
+        target_community_id: scopedCommunityId,
+        requested_permission: "REMOVE_CONTENT",
+      }
+    );
+
+    if (authorityError) {
+      console.error(
+        "Community Live Chat moderation authority check failed:",
+        authorityError
+      );
+      setCanRemoveMessages(false);
+      return;
+    }
+
+    setCanRemoveMessages(Boolean(data));
   }
 
   async function loadMessages() {
@@ -175,6 +226,7 @@ export default function LiveChat({
 
   useEffect(() => {
     loadMessages();
+    loadModerationAuthority();
 
     const channel = supabase
       .channel(
@@ -255,12 +307,78 @@ export default function LiveChat({
           scrollToBottom();
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "chat_messages",
+        },
+        (payload) => {
+          const removedId = payload.old?.id;
+
+          if (removedId == null) return;
+
+          setMessages((current) =>
+            current.filter((item) => item.id !== removedId)
+          );
+
+          setReplyTarget((current) =>
+            current?.id === removedId ? null : current
+          );
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [normalizedScope, scopedCommunityId]);
+  }, [normalizedScope, scopedCommunityId, user?.id]);
+
+  async function removeMessage(item) {
+    if (!item?.id || !canRemoveMessages || removingMessageId != null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove this Live Chat message from ${displayName(item.profiles)}?`
+    );
+
+    if (!confirmed) return;
+
+    setRemovingMessageId(item.id);
+    setError("");
+
+    const { data, error: removeError } = await supabase.rpc(
+      "remove_live_chat_message",
+      { target_message_id: item.id }
+    );
+
+    if (removeError) {
+      console.error("Live Chat message removal failed:", removeError);
+      setError(removeError.message);
+      setRemovingMessageId(null);
+      return;
+    }
+
+    if (!data) {
+      setError("Live Chat message could not be removed.");
+      setRemovingMessageId(null);
+      return;
+    }
+
+    // Immediate local removal. Realtime DELETE performs the same operation
+    // for other connected room clients.
+    setMessages((current) =>
+      current.filter((messageItem) => messageItem.id !== item.id)
+    );
+
+    setReplyTarget((current) =>
+      current?.id === item.id ? null : current
+    );
+
+    setRemovingMessageId(null);
+  }
 
   async function sendMessage(event) {
     event.preventDefault();
@@ -447,6 +565,23 @@ export default function LiveChat({
                     <span>
                       {formatTime(item.created_at)}
                     </span>
+
+                    {canRemoveMessages && (
+                      <button
+                        type="button"
+                        className="chat-remove-message"
+                        disabled={removingMessageId === item.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeMessage(item);
+                        }}
+                        title="Remove message"
+                      >
+                        {removingMessageId === item.id
+                          ? "Removing..."
+                          : "Remove"}
+                      </button>
+                    )}
                   </div>
 
                   {parent && (
