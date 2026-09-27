@@ -213,6 +213,13 @@ export default function Discussion({
   const [moderating, setModerating] =
     useState(false);
 
+  // Community Moderation V1.7A — permission state is resolved by the database.
+  const [communityModeration, setCommunityModeration] = useState({
+    isCommunity: false,
+    canRemoveContent: false,
+    canLockDiscussion: false,
+  });
+
   const previewRef = useRef([]);
   const composerRef = useRef(null);
 
@@ -222,6 +229,13 @@ export default function Discussion({
 
   const isConversation =
     discussion.discussionType === "CONVERSATION";
+
+  const isCommunityDiscussion =
+    discussion.discussionType === "COMMUNITY";
+
+  const isCommunityConversation =
+    isCommunityDiscussion &&
+    !Boolean(discussion.instrumentId ?? discussion.instrument_id);
 
   // Public market rooms use MARKET_SEGMENT. Community market rooms deliberately
   // remain COMMUNITY rows, but an instrument + segment coordinate makes them a
@@ -535,11 +549,46 @@ export default function Discussion({
     setRestrictionLoading(false);
   }
 
-  async function loadConversationState() {
-    if (!isConversation) return;
+  async function loadCommunityModerationState() {
+    if (!isCommunityDiscussion) {
+      setCommunityModeration({
+        isCommunity: false,
+        canRemoveContent: false,
+        canLockDiscussion: false,
+      });
+      return;
+    }
 
     const { data, error } = await supabase.rpc(
-      "get_conversation_state",
+      "get_community_discussion_moderation_state",
+      { target_discussion_id: discussion.id }
+    );
+
+    if (error) {
+      console.error("Community moderation state load failed:", error);
+      setCommunityModeration({
+        isCommunity: true,
+        canRemoveContent: false,
+        canLockDiscussion: false,
+      });
+      return;
+    }
+
+    const state = Array.isArray(data) ? data[0] : data;
+    setCommunityModeration({
+      isCommunity: true,
+      canRemoveContent: Boolean(state?.can_remove_content),
+      canLockDiscussion: Boolean(state?.can_lock_discussion),
+    });
+  }
+
+  async function loadConversationState() {
+    if (!isConversation && !isCommunityConversation) return;
+
+    const { data, error } = await supabase.rpc(
+      isCommunityConversation
+        ? "get_community_conversation_state"
+        : "get_conversation_state",
       {
         target_discussion_id: discussion.id,
       }
@@ -577,6 +626,7 @@ export default function Discussion({
   useEffect(() => {
     loadPosts();
     loadConversationState();
+    loadCommunityModerationState();
     loadPostingRestriction();
   }, [discussion.id]);
 
@@ -740,7 +790,7 @@ export default function Discussion({
       return;
     }
 
-    if (isConversation && conversationLocked) {
+    if ((isConversation || isCommunityConversation) && conversationLocked) {
       setError(
         "This conversation is locked."
       );
@@ -897,9 +947,13 @@ export default function Discussion({
   }
 
   async function removePost(post) {
+    const canModerateCommunityPost =
+      isCommunityDiscussion && communityModeration.canRemoveContent;
+
     if (
       post.author_id !== user.id &&
-      !isAdmin
+      !isAdmin &&
+      !canModerateCommunityPost
     ) {
       return;
     }
@@ -914,11 +968,14 @@ export default function Discussion({
 
     setError("");
 
+    const moderationRemoval =
+      post.author_id !== user.id &&
+      isCommunityDiscussion &&
+      !isAdmin;
+
     const { error } = await supabase.rpc(
-      "remove_post",
-      {
-        target_post_id: post.id,
-      }
+      moderationRemoval ? "community_remove_post" : "remove_post",
+      { target_post_id: post.id }
     );
 
     if (error) {
@@ -965,7 +1022,9 @@ export default function Discussion({
     const nextLocked = !conversationLocked;
 
     const { error } = await supabase.rpc(
-      "set_conversation_locked",
+      isCommunityConversation
+        ? "set_community_discussion_locked"
+        : "set_conversation_locked",
       {
         target_discussion_id: discussion.id,
         target_locked: nextLocked,
@@ -996,7 +1055,9 @@ export default function Discussion({
     setError("");
 
     const { error } = await supabase.rpc(
-      "remove_conversation",
+      isCommunityConversation
+        ? "community_remove_discussion"
+        : "remove_conversation",
       {
         target_discussion_id: discussion.id,
       }
@@ -1064,7 +1125,7 @@ export default function Discussion({
         &lt;- Back to forum
       </button>
 
-      {isConversation && (
+      {(isConversation || isCommunityConversation) && (
         <>
           <div className="breadcrumb">
             <button
@@ -1081,17 +1142,22 @@ export default function Discussion({
           <section className="discussion-header">
             <div>
               <span className="eyebrow">
-                DWMY CONVERSATION
+                {isCommunityConversation ? "COMMUNITY CONVERSATION" : "DWMY CONVERSATION"}
               </span>
 
               <h1>{conversationTitle}</h1>
 
               <p>
-                Free-form community discussion.
+                {isCommunityConversation
+                  ? `${discussion.communityName || "Community"} conversation.`
+                  : "Free-form community discussion."}
               </p>
             </div>
 
-            {isAdmin && (
+            {(isAdmin ||
+              (isCommunityConversation &&
+                (communityModeration.canRemoveContent ||
+                  communityModeration.canLockDiscussion))) && (
               <div className="thread-moderation">
                 <button
                   type="button"
@@ -1107,36 +1173,40 @@ export default function Discussion({
 
                 {showModeration && (
                   <div className="moderation-menu">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRenamingConversation(true);
-                        setShowModeration(false);
-                      }}
-                    >
-                      Rename Conversation
-                    </button>
+                    {isConversation && isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenamingConversation(true);
+                          setShowModeration(false);
+                        }}
+                      >
+                        Rename Conversation
+                      </button>
+                    )}
 
-                    <button
-                      type="button"
-                      onClick={
-                        toggleConversationLocked
-                      }
-                      disabled={moderating}
-                    >
-                      {conversationLocked
-                        ? "Unlock Conversation"
-                        : "Lock Conversation"}
-                    </button>
+                    {(isAdmin || communityModeration.canLockDiscussion) && (
+                      <button
+                        type="button"
+                        onClick={toggleConversationLocked}
+                        disabled={moderating}
+                      >
+                        {conversationLocked
+                          ? "Unlock Conversation"
+                          : "Lock Conversation"}
+                      </button>
+                    )}
 
-                    <button
-                      type="button"
-                      className="danger-action"
-                      onClick={removeConversation}
-                      disabled={moderating}
-                    >
-                      Remove Conversation
-                    </button>
+                    {(isAdmin || communityModeration.canRemoveContent) && (
+                      <button
+                        type="button"
+                        className="danger-action"
+                        onClick={removeConversation}
+                        disabled={moderating}
+                      >
+                        Remove Conversation
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1400,7 +1470,8 @@ export default function Discussion({
                           </button>
                         )}
 
-                        {(owns || isAdmin) && (
+                        {(owns || isAdmin ||
+                          (isCommunityDiscussion && communityModeration.canRemoveContent)) && (
                           <button
                             type="button"
                             className="dwmy-text-button"
@@ -1545,7 +1616,7 @@ export default function Discussion({
             </span>
           </div>
         </div>
-      ) : isConversation && conversationLocked ? (
+      ) : (isConversation || isCommunityConversation) && conversationLocked ? (
         <div className="reply-box locked-reply-box">
           <div className="reply-heading">
             <strong>
