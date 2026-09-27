@@ -91,10 +91,20 @@ function previewMessage(item) {
   return clean.length > 110 ? `${clean.slice(0, 107)}...` : clean;
 }
 
-export default function LiveChat({ user, onMessageUser }) {
+export default function LiveChat({
+  user,
+  onMessageUser,
+  scopeType = "PUBLIC",
+  communityId = null,
+  communityName = "",
+}) {
+  const normalizedScope = scopeType === "COMMUNITY" ? "COMMUNITY" : "PUBLIC";
+  const scopedCommunityId =
+    normalizedScope === "COMMUNITY" ? Number(communityId) : null;
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -116,26 +126,33 @@ export default function LiveChat({ user, onMessageUser }) {
     setLoading(true);
     setError("");
 
-    const { data, error: loadError } =
-      await supabase
-        .from("chat_messages")
-        .select(`
+    let query = supabase
+      .from("chat_messages")
+      .select(`
+        id,
+        user_id,
+        message,
+        reply_to_id,
+        scope_type,
+        community_id,
+        created_at,
+        profiles!chat_messages_user_id_fkey (
           id,
-          user_id,
-          message,
-          reply_to_id,
-          created_at,
-          profiles!chat_messages_user_id_fkey (
-            id,
-            username,
-            display_name,
-            avatar_path
-          )
-        `)
-        .order("created_at", {
-          ascending: true,
-        })
-        .limit(100);
+          username,
+          display_name,
+          avatar_path
+        )
+      `)
+      .eq("scope_type", normalizedScope);
+
+    query =
+      normalizedScope === "COMMUNITY"
+        ? query.eq("community_id", scopedCommunityId)
+        : query.is("community_id", null);
+
+    const { data, error: loadError } = await query
+      .order("created_at", { ascending: true })
+      .limit(100);
 
     if (loadError) {
       console.error(
@@ -160,33 +177,57 @@ export default function LiveChat({ user, onMessageUser }) {
     loadMessages();
 
     const channel = supabase
-      .channel("dwmy-global-chat")
+      .channel(
+        normalizedScope === "COMMUNITY"
+          ? `dwmy-community-chat-${scopedCommunityId}`
+          : "dwmy-global-chat"
+      )
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "chat_messages",
+          filter:
+            normalizedScope === "COMMUNITY"
+              ? `community_id=eq.${scopedCommunityId}`
+              : "scope_type=eq.PUBLIC",
         },
         async (payload) => {
-          const { data, error: messageError } =
-            await supabase
-              .from("chat_messages")
-              .select(`
+          if (
+            payload.new.scope_type !== normalizedScope ||
+            (normalizedScope === "COMMUNITY" &&
+              Number(payload.new.community_id) !== scopedCommunityId) ||
+            (normalizedScope === "PUBLIC" && payload.new.community_id != null)
+          ) {
+            return;
+          }
+          let messageQuery = supabase
+            .from("chat_messages")
+            .select(`
+              id,
+              user_id,
+              message,
+              reply_to_id,
+              scope_type,
+              community_id,
+              created_at,
+              profiles!chat_messages_user_id_fkey (
                 id,
-                user_id,
-                message,
-                reply_to_id,
-                created_at,
-                profiles!chat_messages_user_id_fkey (
-                  id,
-                  username,
-                  display_name,
-                  avatar_path
-                )
-              `)
-              .eq("id", payload.new.id)
-              .single();
+                username,
+                display_name,
+                avatar_path
+              )
+            `)
+            .eq("id", payload.new.id)
+            .eq("scope_type", normalizedScope);
+
+          messageQuery =
+            normalizedScope === "COMMUNITY"
+              ? messageQuery.eq("community_id", scopedCommunityId)
+              : messageQuery.is("community_id", null);
+
+          const { data, error: messageError } = await messageQuery.single();
 
           if (messageError) {
             console.error(
@@ -219,7 +260,7 @@ export default function LiveChat({ user, onMessageUser }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [normalizedScope, scopedCommunityId]);
 
   async function sendMessage(event) {
     event.preventDefault();
@@ -240,12 +281,17 @@ export default function LiveChat({ user, onMessageUser }) {
           user_id: user.id,
           message: clean,
           reply_to_id: replyTarget?.id || null,
+          scope_type: normalizedScope,
+          community_id:
+            normalizedScope === "COMMUNITY" ? scopedCommunityId : null,
         })
         .select(`
           id,
           user_id,
           message,
           reply_to_id,
+          scope_type,
+          community_id,
           created_at,
           profiles!chat_messages_user_id_fkey (
             id,
@@ -288,6 +334,14 @@ export default function LiveChat({ user, onMessageUser }) {
     scrollToBottom();
   }
 
+  function addEmoji(emoji) {
+    setMessage((current) => `${current}${emoji}`);
+    setShowEmojiPicker(false);
+    requestAnimationFrame(() => {
+      document.getElementById("dwmy-live-chat-input")?.focus();
+    });
+  }
+
   return (
     <section className="panel chat-panel">
       <div className="panel-heading">
@@ -298,7 +352,9 @@ export default function LiveChat({ user, onMessageUser }) {
         </div>
 
         <span className="muted">
-          Global room
+          {normalizedScope === "COMMUNITY"
+            ? `${communityName || "Community"} room`
+            : "Global room"}
         </span>
       </div>
 
@@ -410,42 +466,71 @@ export default function LiveChat({ user, onMessageUser }) {
       </div>
 
       <form
-        className="chat-compose"
+        className="chat-compose chat-compose-stacked"
         onSubmit={sendMessage}
       >
         {replyTarget && (
-          <div className="chat-compose-reply">
+          <div className="chat-compose-reply chat-compose-reply-row">
             <span>
               Replying to {displayName(replyTarget.profiles)} · “{previewMessage(replyTarget)}”
             </span>
             <button
               type="button"
               onClick={() => setReplyTarget(null)}
+              aria-label="Cancel reply"
             >
               ×
             </button>
           </div>
         )}
 
-        <input
-          id="dwmy-live-chat-input"
-          value={message}
-          onChange={(event) =>
-            setMessage(event.target.value)
-          }
-          placeholder="Message the room..."
-          maxLength={2000}
-          disabled={sending}
-        />
+        <div className="chat-compose-main">
+          <div className="chat-emoji-wrap">
+            <button
+              type="button"
+              className="chat-emoji-button"
+              aria-label="Add emoji"
+              title="Add emoji"
+              onClick={() => setShowEmojiPicker((current) => !current)}
+            >
+              ☺
+            </button>
 
-        <button
-          type="submit"
-          disabled={
-            sending || !message.trim()
-          }
-        >
-          {sending ? "Sending..." : "Send"}
-        </button>
+            {showEmojiPicker && (
+              <div className="chat-emoji-picker">
+                {["😀", "😂", "👍", "🔥", "❤️", "🎯", "📈", "📉", "💯", "👀", "🤝", "🚀"].map(
+                  (emoji) => (
+                    <button
+                      type="button"
+                      key={emoji}
+                      onClick={() => addEmoji(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+
+          <input
+            id="dwmy-live-chat-input"
+            value={message}
+            onChange={(event) =>
+              setMessage(event.target.value)
+            }
+            placeholder="Message the room..."
+            maxLength={2000}
+            disabled={sending}
+          />
+
+          <button
+            type="submit"
+            disabled={sending || !message.trim()}
+          >
+            {sending ? "Sending..." : "Send"}
+          </button>
+        </div>
       </form>
     </section>
   );

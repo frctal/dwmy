@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import LiveChat from "../components/LiveChat";
 
 function slugify(value) {
   return value
@@ -160,6 +161,36 @@ export default function Communities({
   const [inviteEmail, setInviteEmail] = useState("");
   const [myCommunityInvitations, setMyCommunityInvitations] = useState([]);
   const [invitationBusyId, setInvitationBusyId] = useState(null);
+
+  // Communities V1.7B — Community member moderation.
+  const [canWarnMembers, setCanWarnMembers] = useState(false);
+  const [canMuteMembers, setCanMuteMembers] = useState(false);
+  const [canViewModerationHistory, setCanViewModerationHistory] = useState(false);
+  const [moderationBusy, setModerationBusy] = useState(false);
+  const [moderationMember, setModerationMember] = useState(null);
+  const [moderationHistory, setModerationHistory] = useState([]);
+  const [moderationHistoryLoading, setModerationHistoryLoading] = useState(false);
+
+  // Communities V1.8B — optional scoped Community Live Chat.
+  const [communityLiveChatEnabled, setCommunityLiveChatEnabled] = useState(false);
+  const [canManageLiveChat, setCanManageLiveChat] = useState(false);
+  const [communityLiveChatLoading, setCommunityLiveChatLoading] = useState(false);
+  const [communityLiveChatBusy, setCommunityLiveChatBusy] = useState(false);
+
+  // Communities V1.9B — Community presentation settings.
+  const [communityPresentationLoading, setCommunityPresentationLoading] = useState(false);
+  const [communityPresentationBusy, setCommunityPresentationBusy] = useState(false);
+  const [canManagePresentation, setCanManagePresentation] = useState(false);
+  const [communityProfileUrl, setCommunityProfileUrl] = useState("");
+  const [communityBannerUrl, setCommunityBannerUrl] = useState("");
+  const [presentationForm, setPresentationForm] = useState({
+    conversationsTitle: "",
+    conversationsDescription: "",
+    marketsTitle: "",
+    marketsDescription: "",
+    liveChatTitle: "",
+    sectionOrder: ["LIVE_CHAT", "CONVERSATIONS", "MARKETS"],
+  });
 
   // Communities V1.6.3B — canonical Community Market selection.
   const [communityMarketSections, setCommunityMarketSections] = useState([]);
@@ -432,9 +463,11 @@ export default function Communities({
     setCommunityDiscussions([]);
     setDiscussionTitle("");
 
-    const [, , permissionResult, createDiscussionPermission, discussionResult] = await Promise.all([
+    const [, , , , permissionResult, createDiscussionPermission, discussionResult] = await Promise.all([
       loadCommunityCategories(community.id),
       loadCommunityMarkets(community),
+      loadCommunityLiveChatState(community),
+      loadCommunityPresentationSettings(community),
       supabase.rpc("has_community_permission", {
         target_community_id: community.id,
         requested_permission: "MANAGE_STRUCTURE",
@@ -673,6 +706,248 @@ export default function Communities({
     finally{setCommunityMarketOpening(false);}
   }
 
+  async function loadCommunityLiveChatState(community = selectedCommunity) {
+    if (!community?.id) return;
+    setCommunityLiveChatLoading(true);
+    const { data, error: chatStateError } = await supabase.rpc(
+      "get_community_live_chat_state",
+      { target_community_id: community.id }
+    );
+    if (chatStateError) {
+      console.error("Community Live Chat state failed:", chatStateError);
+      setCommunityLiveChatEnabled(false);
+      setCanManageLiveChat(false);
+    } else {
+      const state = Array.isArray(data) ? data[0] : data;
+      setCommunityLiveChatEnabled(Boolean(state?.live_chat_enabled));
+      setCanManageLiveChat(Boolean(state?.can_manage_live_chat));
+    }
+    setCommunityLiveChatLoading(false);
+  }
+
+  async function toggleCommunityLiveChat() {
+    if (!selectedCommunity || !canManageLiveChat || communityLiveChatBusy) return;
+    const nextEnabled = !communityLiveChatEnabled;
+    setCommunityLiveChatBusy(true); setError(""); setNotice("");
+    const { data, error: toggleError } = await supabase.rpc(
+      "set_community_live_chat_enabled",
+      { target_community_id: selectedCommunity.id, target_enabled: nextEnabled }
+    );
+    if (toggleError) setError(toggleError.message);
+    else {
+      setCommunityLiveChatEnabled(Boolean(data));
+      setNotice(`${selectedCommunity.name} Live Chat ${nextEnabled ? "enabled" : "disabled"}.`);
+    }
+    setCommunityLiveChatBusy(false);
+  }
+
+  async function openCommunityLiveChatSettings() {
+    setCommunityView("live-chat-settings"); setShowStructureManager(false);
+    setNotice(""); setError("");
+    await loadCommunityLiveChatState(selectedCommunity);
+    window.scrollTo(0, 0);
+  }
+
+  async function openCommunityLiveChat() {
+    setCommunityView("live-chat"); setShowStructureManager(false);
+    setNotice(""); setError("");
+    await loadCommunityLiveChatState(selectedCommunity);
+    window.scrollTo(0, 0);
+  }
+
+  async function signedCommunityMediaUrl(path) {
+    if (!path) return "";
+    const { data, error: signedError } = await supabase.storage
+      .from("community-media")
+      .createSignedUrl(path, 3600);
+    if (signedError) {
+      console.error("Community media signed URL failed:", signedError);
+      return "";
+    }
+    return data?.signedUrl || "";
+  }
+
+  async function loadCommunityPresentationSettings(community = selectedCommunity) {
+    if (!community?.id) return;
+    setCommunityPresentationLoading(true);
+
+    const { data, error: settingsError } = await supabase.rpc(
+      "get_community_presentation_settings",
+      { target_community_id: community.id }
+    );
+
+    if (settingsError) {
+      console.error("Community presentation settings failed:", settingsError);
+      setCommunityPresentationLoading(false);
+      return;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      setCommunityPresentationLoading(false);
+      return;
+    }
+
+    const order = Array.isArray(row.section_order)
+      ? row.section_order
+      : ["LIVE_CHAT", "CONVERSATIONS", "MARKETS"];
+
+    setCanManagePresentation(Boolean(row.can_manage_settings));
+    setPresentationForm({
+      conversationsTitle: row.conversations_title || `${community.name} Conversations`,
+      conversationsDescription: row.conversations_description || "Description",
+      marketsTitle: row.markets_title || "MARKETS",
+      marketsDescription: row.markets_description || "Description",
+      liveChatTitle: row.live_chat_title || "Live Chat",
+      sectionOrder: order,
+    });
+
+    const [profileUrl, bannerUrl] = await Promise.all([
+      signedCommunityMediaUrl(row.profile_image_path),
+      signedCommunityMediaUrl(row.banner_image_path),
+    ]);
+    setCommunityProfileUrl(profileUrl);
+    setCommunityBannerUrl(bannerUrl);
+
+    setSelectedCommunity((current) =>
+      current?.id === community.id
+        ? {
+            ...current,
+            profile_image_path: row.profile_image_path,
+            banner_image_path: row.banner_image_path,
+            conversations_title: row.conversations_title,
+            conversations_description: row.conversations_description,
+            markets_title: row.markets_title,
+            markets_description: row.markets_description,
+            live_chat_title: row.live_chat_title,
+            section_order: order,
+          }
+        : current
+    );
+
+    setCommunityPresentationLoading(false);
+  }
+
+  async function saveCommunityPresentation(event) {
+    event.preventDefault();
+    if (!selectedCommunity?.id || !canManagePresentation) return;
+
+    setCommunityPresentationBusy(true);
+    setError("");
+    setNotice("");
+
+    const { error: saveError } = await supabase.rpc(
+      "set_community_presentation_settings",
+      {
+        target_community_id: selectedCommunity.id,
+        new_conversations_title: presentationForm.conversationsTitle,
+        new_conversations_description: presentationForm.conversationsDescription,
+        new_markets_title: presentationForm.marketsTitle,
+        new_markets_description: presentationForm.marketsDescription,
+        new_live_chat_title: presentationForm.liveChatTitle,
+        new_section_order: presentationForm.sectionOrder,
+      }
+    );
+
+    if (saveError) {
+      setError(saveError.message);
+    } else {
+      await loadCommunityPresentationSettings(selectedCommunity);
+      setNotice("Community presentation saved.");
+    }
+    setCommunityPresentationBusy(false);
+  }
+
+  function moveCommunitySection(section, direction) {
+    setPresentationForm((current) => {
+      const order = [...current.sectionOrder];
+      const index = order.indexOf(section);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return current;
+      [order[index], order[nextIndex]] = [order[nextIndex], order[index]];
+      return { ...current, sectionOrder: order };
+    });
+  }
+
+  async function uploadCommunityMedia(kind, file) {
+    if (!selectedCommunity?.id || !file || !canManagePresentation) return;
+    if (!file.type?.startsWith("image/")) {
+      setError("Choose an image file.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Community images must be 8 MB or smaller.");
+      return;
+    }
+
+    setCommunityPresentationBusy(true);
+    setError("");
+    setNotice("");
+
+    const extension = (file.name.split(".").pop() || "webp").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const slot = kind === "PROFILE" ? "profile" : "banner";
+    const path = `${selectedCommunity.id}/${slot}-${Date.now()}.${extension || "webp"}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("community-media")
+      .upload(path, file, { upsert: false, contentType: file.type });
+
+    if (uploadError) {
+      setError(uploadError.message);
+      setCommunityPresentationBusy(false);
+      return;
+    }
+
+    const { error: pathError } = await supabase.rpc("set_community_media_path", {
+      target_community_id: selectedCommunity.id,
+      media_kind: kind,
+      new_path: path,
+    });
+
+    if (pathError) {
+      await supabase.storage.from("community-media").remove([path]);
+      setError(pathError.message);
+    } else {
+      await loadCommunityPresentationSettings(selectedCommunity);
+      setNotice(`${kind === "PROFILE" ? "Community profile picture" : "Community banner"} updated.`);
+    }
+    setCommunityPresentationBusy(false);
+  }
+
+  async function removeCommunityMedia(kind) {
+    if (!selectedCommunity?.id || !canManagePresentation) return;
+    const oldPath =
+      kind === "PROFILE"
+        ? selectedCommunity.profile_image_path
+        : selectedCommunity.banner_image_path;
+
+    setCommunityPresentationBusy(true);
+    setError("");
+    const { error: pathError } = await supabase.rpc("set_community_media_path", {
+      target_community_id: selectedCommunity.id,
+      media_kind: kind,
+      new_path: null,
+    });
+
+    if (pathError) {
+      setError(pathError.message);
+    } else {
+      if (oldPath) await supabase.storage.from("community-media").remove([oldPath]);
+      await loadCommunityPresentationSettings(selectedCommunity);
+      setNotice(`${kind === "PROFILE" ? "Community profile picture" : "Community banner"} removed.`);
+    }
+    setCommunityPresentationBusy(false);
+  }
+
+  async function openCommunityPresentationSettings() {
+    setCommunityView("presentation-settings");
+    setShowStructureManager(false);
+    setNotice("");
+    setError("");
+    await loadCommunityPresentationSettings(selectedCommunity);
+    window.scrollTo(0, 0);
+  }
+
   async function loadCommunityMembership(community = selectedCommunity) {
     if (!community) return;
 
@@ -689,6 +964,9 @@ export default function Communities({
       manageSettingsResult,
       removeMembersResult,
       inviteMembersResult,
+      warnMembersResult,
+      muteMembersResult,
+      viewModerationHistoryResult,
     ] = await Promise.all([
       supabase
         .from("community_members")
@@ -711,6 +989,18 @@ export default function Communities({
       supabase.rpc("has_community_permission", {
         target_community_id: community.id,
         requested_permission: "INVITE_MEMBER",
+      }),
+      supabase.rpc("has_community_permission", {
+        target_community_id: community.id,
+        requested_permission: "WARN_MEMBER",
+      }),
+      supabase.rpc("has_community_permission", {
+        target_community_id: community.id,
+        requested_permission: "MUTE_MEMBER",
+      }),
+      supabase.rpc("has_community_permission", {
+        target_community_id: community.id,
+        requested_permission: "VIEW_MODERATION_HISTORY",
       }),
     ]);
 
@@ -756,6 +1046,16 @@ export default function Communities({
     );
     setCanInviteMembers(
       !inviteMembersResult.error && Boolean(inviteMembersResult.data)
+    );
+    setCanWarnMembers(
+      !warnMembersResult.error && Boolean(warnMembersResult.data)
+    );
+    setCanMuteMembers(
+      !muteMembersResult.error && Boolean(muteMembersResult.data)
+    );
+    setCanViewModerationHistory(
+      !viewModerationHistoryResult.error &&
+        Boolean(viewModerationHistoryResult.data)
     );
 
     if (mayReadInvitations || (!inviteMembersResult.error && inviteMembersResult.data)) {
@@ -847,7 +1147,16 @@ export default function Communities({
     setMembershipLoading(false);
   }
 
-  async function openMembers() {
+  async function openInvitationsAccess() {
+    setCommunityView("access");
+    setShowStructureManager(false);
+    setNotice("");
+    setError("");
+    await loadCommunityMembership();
+    window.scrollTo(0, 0);
+  }
+
+  async function openMemberModeration() {
     setCommunityView("members");
     setShowStructureManager(false);
     setNotice("");
@@ -1069,6 +1378,157 @@ export default function Communities({
     }
 
     setMembershipBusy(false);
+  }
+
+  function moderationMemberName(member) {
+    return (
+      member?.profile?.display_name ||
+      (member?.profile?.username ? `@${member.profile.username}` : null) ||
+      "this member"
+    );
+  }
+
+  async function warnCommunityMember(member) {
+    if (!selectedCommunity || !member?.user_id || moderationBusy) return;
+
+    const reason = window.prompt(
+      `Warning for ${moderationMemberName(member)}:`,
+      ""
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("A warning reason is required.");
+      return;
+    }
+
+    setModerationBusy(true);
+    setError("");
+    setNotice("");
+
+    const { error: warningError } = await supabase.rpc(
+      "community_warn_member",
+      {
+        target_community_id: selectedCommunity.id,
+        target_user_id: member.user_id,
+        warning_reason: reason.trim(),
+      }
+    );
+
+    if (warningError) {
+      setError(warningError.message);
+    } else {
+      setNotice(`Warning issued to ${moderationMemberName(member)}.`);
+    }
+
+    setModerationBusy(false);
+  }
+
+  async function muteCommunityMember(member) {
+    if (!selectedCommunity || !member?.user_id || moderationBusy) return;
+
+    const durationInput = window.prompt(
+      `Mute ${moderationMemberName(member)} for how many hours?`,
+      "1"
+    );
+    if (durationInput === null) return;
+
+    const durationHours = Number(durationInput);
+    if (!Number.isFinite(durationHours) || durationHours <= 0) {
+      setError("Mute duration must be a positive number of hours.");
+      return;
+    }
+
+    const reason = window.prompt(
+      `Mute reason for ${moderationMemberName(member)}:`,
+      ""
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("A mute reason is required.");
+      return;
+    }
+
+    setModerationBusy(true);
+    setError("");
+    setNotice("");
+
+    const { error: muteError } = await supabase.rpc(
+      "community_mute_member",
+      {
+        target_community_id: selectedCommunity.id,
+        target_user_id: member.user_id,
+        duration_hours: durationHours,
+        mute_reason: reason.trim(),
+      }
+    );
+
+    if (muteError) {
+      setError(muteError.message);
+    } else {
+      setNotice(
+        `${moderationMemberName(member)} was muted for ${durationHours} hour${durationHours === 1 ? "" : "s"}.`
+      );
+    }
+
+    setModerationBusy(false);
+  }
+
+  async function openCommunityMemberModerationHistory(member) {
+    if (!selectedCommunity || !member?.user_id) return;
+
+    setModerationMember(member);
+    setModerationHistory([]);
+    setModerationHistoryLoading(true);
+    setError("");
+
+    const { data, error: historyError } = await supabase.rpc(
+      "get_community_member_moderation_history",
+      {
+        target_community_id: selectedCommunity.id,
+        target_user_id: member.user_id,
+        requested_limit: 50,
+      }
+    );
+
+    if (historyError) {
+      setError(historyError.message);
+      setModerationMember(null);
+    } else {
+      setModerationHistory(data || []);
+    }
+
+    setModerationHistoryLoading(false);
+  }
+
+  async function revokeCommunityMute(historyRow) {
+    if (!historyRow?.restriction_id || moderationBusy) return;
+
+    const reason = window.prompt("Reason for unmuting this member:", "");
+    if (reason === null) return;
+
+    setModerationBusy(true);
+    setError("");
+    setNotice("");
+
+    const { error: revokeError } = await supabase.rpc(
+      "community_revoke_mute",
+      {
+        target_restriction_id: historyRow.restriction_id,
+        revoke_reason_text: reason.trim() || null,
+      }
+    );
+
+    if (revokeError) {
+      setError(revokeError.message);
+      setModerationBusy(false);
+      return;
+    }
+
+    setNotice(`${moderationMemberName(moderationMember)} was unmuted.`);
+    if (moderationMember) {
+      await openCommunityMemberModerationHistory(moderationMember);
+    }
+    setModerationBusy(false);
   }
 
   function resetCategoryForm(parentId = "") {
@@ -1747,14 +2207,20 @@ export default function Communities({
           <span>{selectedCommunity.name}</span>
         </div>
 
-        <div className="community-detail-hero community-detail-hero-managed">
-          <div className="community-detail-mark">
-            {selectedCommunity.name?.[0]?.toUpperCase() || "C"}
+        <div
+          className={`community-detail-hero community-detail-hero-managed${communityBannerUrl ? " community-detail-hero-has-banner" : ""}`}
+          style={communityBannerUrl ? { backgroundImage: `url("${communityBannerUrl}")` } : undefined}
+        >
+          <div className="community-detail-mark community-detail-profile">
+            {communityProfileUrl ? (
+              <img src={communityProfileUrl} alt="" />
+            ) : (
+              selectedCommunity.name?.[0]?.toUpperCase() || "C"
+            )}
           </div>
 
           <div className="community-detail-copy">
-            <span className="eyebrow">DWMY COMMUNITY</span>
-            <h1>{selectedCommunity.name}</h1>
+            <span className="eyebrow">{selectedCommunity.name}</span>
             <p>
               {selectedCommunity.description ||
                 "No community description has been added yet."}
@@ -1898,11 +2364,11 @@ export default function Communities({
               <button
                 type="button"
                 className="community-management-card"
-                onClick={openMembers}
+                onClick={openInvitationsAccess}
               >
                 <span className="eyebrow">MEMBERSHIP</span>
-                <strong>Members & Invitations</strong>
-                <p>Members, roles, invitations, and membership requests.</p>
+                <strong>Invitations & Access</strong>
+                <p>Invitations, membership requests, and Community access.</p>
                 <span className="community-management-arrow">→</span>
               </button>
 
@@ -1942,12 +2408,169 @@ export default function Communities({
                 </button>
               )}
 
-              <div className="community-management-card community-management-card-future">
-                <span className="eyebrow">COMING LATER</span>
+              {(canWarnMembers || canMuteMembers || canViewModerationHistory) && (
+                <button
+                  type="button"
+                  className="community-management-card"
+                  onClick={openMemberModeration}
+                >
+                  <span className="eyebrow">MODERATION</span>
+                  <strong>Member Moderation</strong>
+                  <p>Manage roles, warn, mute, remove members, and review moderation history.</p>
+                  <span className="community-management-arrow">→</span>
+                </button>
+              )}
+
+              <button type="button" className="community-management-card" onClick={openCommunityLiveChatSettings}>
+                <span className="eyebrow">LIVE CHAT</span>
+                <strong>Community Live Chat</strong>
+                <p>{communityLiveChatEnabled ? "Enabled · manage this Community's private live room." : "Optional · enable a live room siloed to this Community."}</p>
+                <span className="community-management-arrow">→</span>
+              </button>
+
+              <button type="button" className="community-management-card" onClick={openCommunityPresentationSettings}>
+                <span className="eyebrow">APPEARANCE & LAYOUT</span>
                 <strong>Community Settings</strong>
-                <p>Branding, markets, live chat, moderation, and page layout will live here.</p>
+                <p>Profile picture, banner, section titles, descriptions, and ordering.</p>
+                <span className="community-management-arrow">→</span>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {communityView === "presentation-settings" && (
+          <section className="community-section community-presentation-settings">
+            <button type="button" className="community-inline-back" onClick={() => { setCommunityView("manage"); window.scrollTo(0, 0); }}>
+              ← Manage Community
+            </button>
+
+            <div className="community-section-heading">
+              <div>
+                <span className="eyebrow">COMMUNITY SETTINGS</span>
+                <h2>Appearance & Layout</h2>
+                <p className="community-section-copy">
+                  Configure this Community's identity and member-page presentation.
+                </p>
               </div>
             </div>
+
+            {communityPresentationLoading ? (
+              <div className="community-empty">Loading Community settings...</div>
+            ) : (
+              <form className="community-create-panel" onSubmit={saveCommunityPresentation}>
+                <div className="community-settings-media-grid">
+                  <article className="community-settings-media-card">
+                    <span className="eyebrow">PROFILE PICTURE</span>
+                    <div className="community-settings-profile-preview">
+                      {communityProfileUrl ? <img src={communityProfileUrl} alt="" /> : <span>{selectedCommunity.name?.[0]?.toUpperCase() || "C"}</span>}
+                    </div>
+                    <label className="community-secondary-button community-file-button">
+                      Upload image
+                      <input type="file" accept="image/*" disabled={communityPresentationBusy || !canManagePresentation} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadCommunityMedia("PROFILE", file); event.target.value = ""; }} />
+                    </label>
+                    {selectedCommunity.profile_image_path && <button type="button" className="community-secondary-button" disabled={communityPresentationBusy || !canManagePresentation} onClick={() => removeCommunityMedia("PROFILE")}>Remove</button>}
+                  </article>
+
+                  <article className="community-settings-media-card community-settings-banner-card">
+                    <span className="eyebrow">BANNER</span>
+                    <div className="community-settings-banner-preview">
+                      {communityBannerUrl ? <img src={communityBannerUrl} alt="" /> : <span>No banner</span>}
+                    </div>
+                    <label className="community-secondary-button community-file-button">
+                      Upload banner
+                      <input type="file" accept="image/*" disabled={communityPresentationBusy || !canManagePresentation} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadCommunityMedia("BANNER", file); event.target.value = ""; }} />
+                    </label>
+                    {selectedCommunity.banner_image_path && <button type="button" className="community-secondary-button" disabled={communityPresentationBusy || !canManagePresentation} onClick={() => removeCommunityMedia("BANNER")}>Remove</button>}
+                  </article>
+                </div>
+
+                <div className="community-form-grid">
+                  <label>
+                    <span>Conversations title</span>
+                    <input maxLength={100} value={presentationForm.conversationsTitle} onChange={(event) => setPresentationForm((current) => ({ ...current, conversationsTitle: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Live Chat title</span>
+                    <input maxLength={100} value={presentationForm.liveChatTitle} onChange={(event) => setPresentationForm((current) => ({ ...current, liveChatTitle: event.target.value }))} />
+                  </label>
+                  <label className="community-form-wide">
+                    <span>Conversations description</span>
+                    <textarea maxLength={500} value={presentationForm.conversationsDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, conversationsDescription: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Markets title</span>
+                    <input maxLength={100} value={presentationForm.marketsTitle} onChange={(event) => setPresentationForm((current) => ({ ...current, marketsTitle: event.target.value }))} />
+                  </label>
+                  <label className="community-form-wide">
+                    <span>Markets description</span>
+                    <textarea maxLength={500} value={presentationForm.marketsDescription} onChange={(event) => setPresentationForm((current) => ({ ...current, marketsDescription: event.target.value }))} />
+                  </label>
+                </div>
+
+                <div className="community-settings-order">
+                  <span className="eyebrow">SECTION ORDER</span>
+                  {presentationForm.sectionOrder.map((section, index) => (
+                    <div className="community-settings-order-row" key={section}>
+                      <strong>{section === "LIVE_CHAT" ? "Live Chat" : section === "CONVERSATIONS" ? "Conversations" : "Markets"}</strong>
+                      <div>
+                        <button type="button" className="community-secondary-button" disabled={index === 0 || communityPresentationBusy} onClick={() => moveCommunitySection(section, -1)}>↑</button>
+                        <button type="button" className="community-secondary-button" disabled={index === presentationForm.sectionOrder.length - 1 || communityPresentationBusy} onClick={() => moveCommunitySection(section, 1)}>↓</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="community-create-footer">
+                  <small>No Community background/theme colors yet; those will inherit DWMY's future global theme system.</small>
+                  <button type="submit" className="primary-button" disabled={communityPresentationBusy || !canManagePresentation}>
+                    {communityPresentationBusy ? "Saving..." : "Save Community Settings"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+        )}
+
+        {communityView === "live-chat-settings" && (
+          <section className="community-section">
+            <button type="button" className="community-inline-back" onClick={() => { setCommunityView("manage"); window.scrollTo(0, 0); }}>
+              ← Manage Community
+            </button>
+            <div className="community-section-heading"><div>
+              <span className="eyebrow">COMMUNITY LIVE CHAT</span>
+              <h2>Live Chat</h2>
+              <p className="community-section-copy">A realtime room isolated to active members of {selectedCommunity.name}.</p>
+            </div></div>
+            {communityLiveChatLoading ? <div className="community-empty">Loading Live Chat settings...</div> : (
+              <div className="community-category-list">
+                <article className="community-category">
+                  <div>
+                    <strong>{communityLiveChatEnabled ? "Live Chat enabled" : "Live Chat disabled"}</strong>
+                    <p>{communityLiveChatEnabled ? "Members can read and participate in this Community's private realtime room." : "No Community chat room is currently available to members."}</p>
+                  </div>
+                  {canManageLiveChat && (
+                    <button type="button" className={communityLiveChatEnabled ? "community-secondary-button" : "primary-button"} disabled={communityLiveChatBusy} onClick={toggleCommunityLiveChat}>
+                      {communityLiveChatBusy ? "Working..." : communityLiveChatEnabled ? "Disable Live Chat" : "Enable Live Chat"}
+                    </button>
+                  )}
+                </article>
+                {communityLiveChatEnabled && (
+                  <button type="button" className="community-management-card" onClick={openCommunityLiveChat}>
+                    <span className="eyebrow">MEMBER VIEW</span><strong>Open Community Live Chat</strong>
+                    <p>Enter the same siloed room available to Community members.</p><span className="community-management-arrow">→</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {communityView === "live-chat" && communityLiveChatEnabled && (
+          <section className="community-section">
+            <button type="button" className="community-inline-back" onClick={() => { setCommunityView("forum"); window.scrollTo(0, 0); }}>
+              ← {selectedCommunity.name}
+            </button>
+            <LiveChat user={user} scopeType="COMMUNITY" communityId={selectedCommunity.id} communityName={selectedCommunity.name} />
           </section>
         )}
 
@@ -2059,8 +2682,11 @@ export default function Communities({
             </button>
             <div className="community-section-heading">
               <div>
-                <span className="eyebrow">COMMUNITY MEMBERSHIP</span>
-                <h2>Members</h2>
+                <span className="eyebrow">COMMUNITY MODERATION</span>
+                <h2>Member Moderation</h2>
+                <p className="community-section-copy">
+                  Manage roles and member-level moderation for {selectedCommunity.name}.
+                </p>
               </div>
               <span className="community-result-count">
                 {communityMembers.length} active
@@ -2114,6 +2740,48 @@ export default function Communities({
                               </label>
                             )}
 
+                          {member.user_id !== user?.id &&
+                            (canWarnMembers ||
+                              canMuteMembers ||
+                              canViewModerationHistory) && (
+                              <>
+                                {canWarnMembers && (
+                                  <button
+                                    type="button"
+                                    className="community-secondary-button"
+                                    disabled={moderationBusy}
+                                    onClick={() => warnCommunityMember(member)}
+                                  >
+                                    Warn
+                                  </button>
+                                )}
+
+                                {canMuteMembers && (
+                                  <button
+                                    type="button"
+                                    className="community-secondary-button"
+                                    disabled={moderationBusy}
+                                    onClick={() => muteCommunityMember(member)}
+                                  >
+                                    Mute
+                                  </button>
+                                )}
+
+                                {canViewModerationHistory && (
+                                  <button
+                                    type="button"
+                                    className="community-secondary-button"
+                                    disabled={moderationBusy}
+                                    onClick={() =>
+                                      openCommunityMemberModerationHistory(member)
+                                    }
+                                  >
+                                    History
+                                  </button>
+                                )}
+                              </>
+                            )}
+
                           {canRemoveMembers &&
                             member.role !== "OWNER" &&
                             member.user_id !== user?.id && (
@@ -2132,6 +2800,38 @@ export default function Communities({
                   })}
                 </div>
 
+              </>
+            )}
+          </section>
+        )}
+
+        {communityView === "access" && (
+          <section className="community-section">
+            <button
+              type="button"
+              className="community-inline-back"
+              onClick={() => {
+                setCommunityView("manage");
+                window.scrollTo(0, 0);
+              }}
+            >
+              ← Manage Community
+            </button>
+
+            <div className="community-section-heading">
+              <div>
+                <span className="eyebrow">COMMUNITY MEMBERSHIP</span>
+                <h2>Invitations & Access</h2>
+                <p className="community-section-copy">
+                  Invite people, review membership requests, and manage Community access.
+                </p>
+              </div>
+            </div>
+
+            {membershipLoading ? (
+              <div className="community-empty">Loading access management...</div>
+            ) : (
+              <>
                 {membership && membership.role !== "OWNER" && (
                   <section
                     className="community-create-panel"
@@ -2635,10 +3335,169 @@ export default function Communities({
           </section>
         )}
 
+        {moderationMember && (
+          <div
+            className="community-moderation-overlay"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setModerationMember(null);
+                setModerationHistory([]);
+              }
+            }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 1000,
+              background: "rgba(0, 0, 0, 0.55)",
+              display: "grid",
+              placeItems: "center",
+              padding: 20,
+            }}
+          >
+            <section
+              className="community-create-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Community moderation history"
+              style={{
+                width: "min(720px, 100%)",
+                maxHeight: "80vh",
+                overflowY: "auto",
+                margin: 0,
+              }}
+            >
+              <div className="community-create-heading">
+                <div>
+                  <span className="eyebrow">COMMUNITY MODERATION</span>
+                  <h2>Moderation history</h2>
+                  <p>
+                    {moderationMemberName(moderationMember)}
+                    {moderationMember.profile?.username &&
+                    moderationMember.profile?.display_name
+                      ? ` · @${moderationMember.profile.username}`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="community-secondary-button"
+                  onClick={() => {
+                    setModerationMember(null);
+                    setModerationHistory([]);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+
+              {moderationHistoryLoading ? (
+                <div className="community-empty">Loading moderation history...</div>
+              ) : moderationHistory.length === 0 ? (
+                <div className="community-empty">
+                  No Community moderation history for this member.
+                </div>
+              ) : (
+                <div className="community-category-list">
+                  {moderationHistory.map((row) => {
+                    const activeMute =
+                      row.action_type === "MUTE" &&
+                      row.restriction_id &&
+                      !row.restriction_revoked_at &&
+                      (!row.restriction_expires_at ||
+                        new Date(row.restriction_expires_at) > new Date());
+
+                    return (
+                      <article
+                        className="community-category"
+                        key={`moderation-${row.action_id}`}
+                      >
+                        <div>
+                          <strong>{String(row.action_type || "").replaceAll("_", " ")}</strong>
+                          <p>
+                            {row.created_at
+                              ? new Date(row.created_at).toLocaleString()
+                              : ""}
+                            {row.actor_username
+                              ? ` · by @${row.actor_username}`
+                              : ""}
+                          </p>
+                          {row.reason_text && <p>{row.reason_text}</p>}
+                          {row.action_type === "MUTE" &&
+                            row.restriction_expires_at && (
+                              <p>
+                                {row.restriction_revoked_at
+                                  ? "Revoked"
+                                  : activeMute
+                                    ? `Expires ${new Date(
+                                        row.restriction_expires_at
+                                      ).toLocaleString()}`
+                                    : `Expired ${new Date(
+                                        row.restriction_expires_at
+                                      ).toLocaleString()}`}
+                              </p>
+                            )}
+                        </div>
+
+                        {activeMute && canMuteMembers && (
+                          <button
+                            type="button"
+                            className="community-secondary-button"
+                            disabled={moderationBusy}
+                            onClick={() => revokeCommunityMute(row)}
+                          >
+                            {moderationBusy ? "Working..." : "Unmute"}
+                          </button>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="community-create-footer" style={{ marginTop: 18 }}>
+                <small>
+                  History is scoped to {selectedCommunity.name}.
+                </small>
+                <button
+                  type="button"
+                  className="community-secondary-button"
+                  onClick={() => {
+                    setModerationMember(null);
+                    setModerationHistory([]);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
         {communityView === "forum" && (
           <>
-            {activeCategories.length > 0 ? (
-              <section className="community-section community-browse-section">
+            {(Array.isArray(presentationForm.sectionOrder)
+              ? presentationForm.sectionOrder
+              : ["LIVE_CHAT", "CONVERSATIONS", "MARKETS"]
+            ).map((sectionKey) => {
+              if (sectionKey === "LIVE_CHAT") {
+                if (!communityLiveChatEnabled) return null;
+                return (
+              <section key="LIVE_CHAT" className="community-section community-live-chat-inline">
+                <LiveChat
+                  user={user}
+                  scopeType="COMMUNITY"
+                  communityId={selectedCommunity.id}
+                  communityName={selectedCommunity.name}
+                />
+              </section>
+                );
+              }
+
+              if (sectionKey === "CONVERSATIONS") {
+                return (
+                  activeCategories.length > 0 ? (
+              <section key="CONVERSATIONS" className="community-section community-browse-section">
                 <div className="community-section-heading">
                   <div>
                     <span className="eyebrow">BROWSE</span>
@@ -2701,13 +3560,12 @@ export default function Communities({
                 </div>
               </section>
             ) : (
-              <section className="community-section community-conversations-section">
+              <section key="CONVERSATIONS" className="community-section community-conversations-section">
                 <div className="community-section-heading community-conversations-heading">
                   <div>
-                    <span className="eyebrow">COMMUNITY CONVERSATIONS</span>
-                    <h2>Conversations</h2>
+                    <span className="eyebrow">{presentationForm.conversationsTitle || `${selectedCommunity.name} Conversations`}</span>
                     <p className="community-section-copy">
-                      Conversations inside {selectedCommunity.name}.
+                      {presentationForm.conversationsDescription || "Description"}
                     </p>
                   </div>
                   <div className="community-heading-actions">
@@ -2836,15 +3694,18 @@ export default function Communities({
                   </div>
                 )}
               </section>
-            )}
+            )
+                );
+              }
 
-            {enabledCommunityMarketDirectory.length > 0 && (
-              <section className="community-section community-member-markets">
+              if (sectionKey === "MARKETS") {
+                if (enabledCommunityMarketDirectory.length === 0) return null;
+                return (
+              <section key="MARKETS" className="community-section community-member-markets">
                 <div className="community-section-heading">
                   <div>
-                    <span className="eyebrow">MARKETS</span>
-                    <h2>Community Markets</h2>
-                    <p className="community-section-copy">DWMY markets enabled for {selectedCommunity.name}.</p>
+                    <span className="eyebrow">{presentationForm.marketsTitle || "MARKETS"}</span>
+                    <p className="community-section-copy">{presentationForm.marketsDescription || "Description"}</p>
                   </div>
                   <span className="community-result-count">{communityMarketEnabledIds.size} enabled</span>
                 </div>
@@ -2868,7 +3729,11 @@ export default function Communities({
                   ))}
                 </div>
               </section>
-            )}
+                );
+              }
+
+              return null;
+            })}
           </>
         )}
       </section>

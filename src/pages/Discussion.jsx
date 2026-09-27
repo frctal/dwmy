@@ -218,7 +218,18 @@ export default function Discussion({
     isCommunity: false,
     canRemoveContent: false,
     canLockDiscussion: false,
+    canWarnMember: false,
+    canMuteMember: false,
+    canViewModerationHistory: false,
   });
+
+  // Community Moderation V1.7B — member actions.
+  const [communityMemberAction, setCommunityMemberAction] = useState(null);
+  const [communityMemberReason, setCommunityMemberReason] = useState("");
+  const [communityMuteHours, setCommunityMuteHours] = useState("24");
+  const [communityMemberModerating, setCommunityMemberModerating] = useState(false);
+  const [communityModerationHistory, setCommunityModerationHistory] = useState([]);
+  const [communityHistoryLoading, setCommunityHistoryLoading] = useState(false);
 
   const previewRef = useRef([]);
   const composerRef = useRef(null);
@@ -555,6 +566,9 @@ export default function Discussion({
         isCommunity: false,
         canRemoveContent: false,
         canLockDiscussion: false,
+        canWarnMember: false,
+        canMuteMember: false,
+        canViewModerationHistory: false,
       });
       return;
     }
@@ -570,6 +584,9 @@ export default function Discussion({
         isCommunity: true,
         canRemoveContent: false,
         canLockDiscussion: false,
+        canWarnMember: false,
+        canMuteMember: false,
+        canViewModerationHistory: false,
       });
       return;
     }
@@ -577,8 +594,12 @@ export default function Discussion({
     const state = Array.isArray(data) ? data[0] : data;
     setCommunityModeration({
       isCommunity: true,
+      communityId: state?.community_id ?? null,
       canRemoveContent: Boolean(state?.can_remove_content),
       canLockDiscussion: Boolean(state?.can_lock_discussion),
+      canWarnMember: Boolean(state?.can_warn_member),
+      canMuteMember: Boolean(state?.can_mute_member),
+      canViewModerationHistory: Boolean(state?.can_view_moderation_history),
     });
   }
 
@@ -986,6 +1007,135 @@ export default function Discussion({
     await loadPosts();
   }
 
+  function closeCommunityMemberAction() {
+    if (communityMemberModerating) return;
+    setCommunityMemberAction(null);
+    setCommunityMemberReason("");
+    setCommunityMuteHours("24");
+    setCommunityModerationHistory([]);
+    setCommunityHistoryLoading(false);
+  }
+
+  async function openCommunityMemberAction(post, mode) {
+    if (!isCommunityDiscussion || !post || post.author_id === user.id) return;
+
+    setError("");
+    setCommunityMemberReason("");
+    setCommunityMuteHours("24");
+    setCommunityModerationHistory([]);
+    setCommunityMemberAction({ post, mode });
+
+    if (mode !== "history") return;
+
+    setCommunityHistoryLoading(true);
+    const { data, error } = await supabase.rpc(
+      "get_community_member_moderation_history",
+      {
+        target_community_id: communityModeration.communityId,
+        target_user_id: post.author_id,
+        requested_limit: 50,
+      }
+    );
+
+    if (error) {
+      console.error("Community moderation history load failed:", error);
+      setError(error.message);
+      setCommunityModerationHistory([]);
+    } else {
+      setCommunityModerationHistory(data || []);
+    }
+
+    setCommunityHistoryLoading(false);
+  }
+
+  async function submitCommunityWarning(event) {
+    event.preventDefault();
+    if (!communityMemberAction?.post || !communityMemberReason.trim()) return;
+
+    setCommunityMemberModerating(true);
+    setError("");
+
+    const { error } = await supabase.rpc("community_warn_member", {
+      target_community_id: communityModeration.communityId,
+      target_user_id: communityMemberAction.post.author_id,
+      warning_reason: communityMemberReason.trim(),
+    });
+
+    setCommunityMemberModerating(false);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    closeCommunityMemberAction();
+  }
+
+  async function submitCommunityMute(event) {
+    event.preventDefault();
+    if (!communityMemberAction?.post || !communityMemberReason.trim()) return;
+
+    const hours = Number(communityMuteHours);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 8760) {
+      setError("Mute duration must be greater than 0 and no more than 8,760 hours.");
+      return;
+    }
+
+    setCommunityMemberModerating(true);
+    setError("");
+
+    const { error } = await supabase.rpc("community_mute_member", {
+      target_community_id: communityModeration.communityId,
+      target_user_id: communityMemberAction.post.author_id,
+      duration_hours: hours,
+      mute_reason: communityMemberReason.trim(),
+    });
+
+    setCommunityMemberModerating(false);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    closeCommunityMemberAction();
+  }
+
+  async function revokeCommunityMute(restrictionId) {
+    if (!restrictionId || communityMemberModerating) return;
+    if (!window.confirm("Unmute this member in this Community?")) return;
+
+    setCommunityMemberModerating(true);
+    setError("");
+
+    const { error } = await supabase.rpc("community_revoke_mute", {
+      target_restriction_id: restrictionId,
+      revoke_reason_text: "Revoked from Community moderation history.",
+    });
+
+    if (error) {
+      setError(error.message);
+      setCommunityMemberModerating(false);
+      return;
+    }
+
+    const post = communityMemberAction?.post;
+    if (post) {
+      const { data, error: historyError } = await supabase.rpc(
+        "get_community_member_moderation_history",
+        {
+          target_community_id: communityModeration.communityId,
+          target_user_id: post.author_id,
+          requested_limit: 50,
+        }
+      );
+      if (historyError) setError(historyError.message);
+      else setCommunityModerationHistory(data || []);
+    }
+
+    setCommunityMemberModerating(false);
+  }
+
   async function saveConversationRename() {
     const clean =
       conversationTitleDraft.trim();
@@ -1118,12 +1268,68 @@ export default function Discussion({
 
   return (
     <div className="discussion-page">
-      <button
-        className="back-link"
-        onClick={goBack}
-      >
-        &lt;- Back to forum
-      </button>
+      <div className="discussion-top-actions">
+        <button
+          className="back-link"
+          onClick={goBack}
+        >
+          &lt;- Back to forum
+        </button>
+
+        {(isAdmin ||
+          (isCommunityConversation &&
+            (communityModeration.canRemoveContent ||
+              communityModeration.canLockDiscussion))) && (
+          <div className="thread-moderation">
+            <button
+              type="button"
+              className="dwmy-action-button"
+              onClick={() => setShowModeration((current) => !current)}
+            >
+              Moderate
+            </button>
+
+            {showModeration && (
+              <div className="moderation-menu">
+                {isConversation && isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenamingConversation(true);
+                      setShowModeration(false);
+                    }}
+                  >
+                    Rename Conversation
+                  </button>
+                )}
+
+                {(isAdmin || communityModeration.canLockDiscussion) && (
+                  <button
+                    type="button"
+                    onClick={toggleConversationLocked}
+                    disabled={moderating}
+                  >
+                    {conversationLocked
+                      ? "Unlock Conversation"
+                      : "Lock Conversation"}
+                  </button>
+                )}
+
+                {(isAdmin || communityModeration.canRemoveContent) && (
+                  <button
+                    type="button"
+                    className="danger-action"
+                    onClick={removeConversation}
+                    disabled={moderating}
+                  >
+                    Remove Conversation
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {(isConversation || isCommunityConversation) && (
         <>
@@ -1154,63 +1360,6 @@ export default function Discussion({
               </p>
             </div>
 
-            {(isAdmin ||
-              (isCommunityConversation &&
-                (communityModeration.canRemoveContent ||
-                  communityModeration.canLockDiscussion))) && (
-              <div className="thread-moderation">
-                <button
-                  type="button"
-                  className="dwmy-action-button"
-                  onClick={() =>
-                    setShowModeration(
-                      (current) => !current
-                    )
-                  }
-                >
-                  Moderate
-                </button>
-
-                {showModeration && (
-                  <div className="moderation-menu">
-                    {isConversation && isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRenamingConversation(true);
-                          setShowModeration(false);
-                        }}
-                      >
-                        Rename Conversation
-                      </button>
-                    )}
-
-                    {(isAdmin || communityModeration.canLockDiscussion) && (
-                      <button
-                        type="button"
-                        onClick={toggleConversationLocked}
-                        disabled={moderating}
-                      >
-                        {conversationLocked
-                          ? "Unlock Conversation"
-                          : "Lock Conversation"}
-                      </button>
-                    )}
-
-                    {(isAdmin || communityModeration.canRemoveContent) && (
-                      <button
-                        type="button"
-                        className="danger-action"
-                        onClick={removeConversation}
-                        disabled={moderating}
-                      >
-                        Remove Conversation
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </section>
 
           {conversationLocked && (
@@ -1327,7 +1476,7 @@ export default function Discussion({
         </>
       )}
 
-      {!isConversation && !isMarketSegment && (
+      {!isConversation && !isCommunityConversation && !isMarketSegment && (
         <>
           <div className="breadcrumb">
             <span>DWMY</span>
@@ -1478,6 +1627,24 @@ export default function Discussion({
                             onClick={() => removePost(post)}
                           >
                             {owns ? "Remove" : "Moderate / Remove"}
+                          </button>
+                        )}
+
+                        {!owns && isCommunityDiscussion && communityModeration.canWarnMember && (
+                          <button type="button" className="dwmy-text-button" onClick={() => openCommunityMemberAction(post, "warn")}>
+                            Warn
+                          </button>
+                        )}
+
+                        {!owns && isCommunityDiscussion && communityModeration.canMuteMember && (
+                          <button type="button" className="dwmy-text-button" onClick={() => openCommunityMemberAction(post, "mute")}>
+                            Mute
+                          </button>
+                        )}
+
+                        {!owns && isCommunityDiscussion && communityModeration.canViewModerationHistory && (
+                          <button type="button" className="dwmy-text-button" onClick={() => openCommunityMemberAction(post, "history")}>
+                            History
                           </button>
                         )}
 
@@ -1789,6 +1956,138 @@ export default function Discussion({
         </form>
       )}
 
+
+      {communityMemberAction && (
+        <div className="moderation-modal-backdrop" role="presentation">
+          <div className="moderation-report-modal" role="dialog" aria-modal="true">
+            <div className="moderation-report-heading">
+              <div>
+                <span className="eyebrow">Community Moderation</span>
+                <h2>
+                  {communityMemberAction.mode === "warn"
+                    ? "Warn member"
+                    : communityMemberAction.mode === "mute"
+                    ? "Mute member"
+                    : "Moderation history"}
+                </h2>
+                <p>
+                  {authorName(communityMemberAction.post)} · @{communityMemberAction.post.profiles?.username || "member"}
+                </p>
+              </div>
+              <button type="button" onClick={closeCommunityMemberAction} disabled={communityMemberModerating}>×</button>
+            </div>
+
+            {communityMemberAction.mode === "history" ? (
+              <div>
+                {communityHistoryLoading ? (
+                  <div className="market-directory-state">Loading moderation history...</div>
+                ) : communityModerationHistory.length === 0 ? (
+                  <div className="market-directory-state">No Community moderation history for this member.</div>
+                ) : (
+                  <div className="community-moderation-history">
+                    {communityModerationHistory.map((item) => {
+                      const activeMute =
+                        item.restriction_type === "MUTE" &&
+                        !item.restriction_revoked_at &&
+                        (!item.restriction_expires_at ||
+                          new Date(item.restriction_expires_at) > new Date());
+
+                      return (
+                        <div className="thread-state-banner" key={item.action_id}>
+                          <strong>{String(item.action_type || "ACTION").replaceAll("_", " ")}</strong>
+                          <span>
+                            {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                            {item.actor_username ? ` · by @${item.actor_username}` : ""}
+                          </span>
+                          {item.reason_text && <span>{item.reason_text}</span>}
+                          {item.restriction_expires_at && (
+                            <span>
+                              {item.restriction_revoked_at
+                                ? "Revoked"
+                                : `Expires ${restrictionExpiryLabel(item.restriction_expires_at)}`}
+                            </span>
+                          )}
+                          {activeMute && communityModeration.canMuteMember && (
+                            <button
+                              type="button"
+                              className="dwmy-text-button"
+                              onClick={() => revokeCommunityMute(item.restriction_id)}
+                              disabled={communityMemberModerating}
+                            >
+                              {communityMemberModerating ? "Working..." : "Unmute"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="moderation-report-actions">
+                  <button type="button" onClick={closeCommunityMemberAction} disabled={communityMemberModerating}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={communityMemberAction.mode === "warn" ? submitCommunityWarning : submitCommunityMute}>
+                {communityMemberAction.mode === "mute" && (
+                  <label>
+                    Duration
+                    <select
+                      value={communityMuteHours}
+                      onChange={(event) => setCommunityMuteHours(event.target.value)}
+                      disabled={communityMemberModerating}
+                    >
+                      <option value="1">1 hour</option>
+                      <option value="6">6 hours</option>
+                      <option value="12">12 hours</option>
+                      <option value="24">24 hours</option>
+                      <option value="72">3 days</option>
+                      <option value="168">7 days</option>
+                      <option value="720">30 days</option>
+                    </select>
+                  </label>
+                )}
+
+                <label>
+                  Reason
+                  <textarea
+                    value={communityMemberReason}
+                    onChange={(event) => setCommunityMemberReason(event.target.value.slice(0, 2000))}
+                    placeholder={
+                      communityMemberAction.mode === "warn"
+                        ? "Explain the Community warning."
+                        : "Explain why posting is being muted in this Community."
+                    }
+                    maxLength={2000}
+                    disabled={communityMemberModerating}
+                    required
+                  />
+                  <small>{communityMemberReason.length.toLocaleString()} / 2,000</small>
+                </label>
+
+                <div className="moderation-report-actions">
+                  <button type="button" onClick={closeCommunityMemberAction} disabled={communityMemberModerating}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={communityMemberModerating || !communityMemberReason.trim()}
+                  >
+                    {communityMemberModerating
+                      ? "Applying..."
+                      : communityMemberAction.mode === "warn"
+                      ? "Issue Warning"
+                      : "Mute Member"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {reportTarget && (
         <div className="moderation-modal-backdrop" role="presentation">

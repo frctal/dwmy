@@ -4754,3 +4754,179 @@ button.community-management-card:hover {
 .community-instrument-page .community-inline-back { margin-bottom: 18px; }
 .community-instrument-hero { margin-top: 14px; }
 @media (max-width:700px){.community-member-market-grid{grid-template-columns:1fr;}}
+/* DWMY V1.7B.1 — discussion top actions */
+.discussion-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.discussion-top-actions .thread-moderation {
+  position: relative;
+}
+/* DWMY V1.8C — Live Chat UX */
+
+.chat-compose.chat-compose-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
+.chat-compose-reply.chat-compose-reply-row {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.chat-compose-main {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.55rem;
+}
+
+.chat-compose-main > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-emoji-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.chat-emoji-button {
+  min-width: 2.5rem;
+}
+
+.chat-emoji-picker {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.5rem);
+  z-index: 30;
+  width: 12rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.3rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 0.75rem;
+  background: var(--panel, #111);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.chat-emoji-picker button {
+  padding: 0.4rem;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.community-live-chat-inline .chat-panel {
+  margin: 0;
+}
+/* DWMY Communities V1.9B — Community Settings */
+
+.community-detail-hero-has-banner {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+.community-detail-hero-has-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.community-detail-hero-has-banner > * {
+  position: relative;
+  z-index: 1;
+}
+
+.community-detail-profile {
+  overflow: hidden;
+}
+
+.community-detail-profile img,
+.community-settings-profile-preview img,
+.community-settings-banner-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.community-settings-media-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.community-settings-media-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.community-settings-profile-preview {
+  width: 7rem;
+  height: 7rem;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border, rgba(255,255,255,.12));
+  font-size: 2rem;
+}
+
+.community-settings-banner-preview {
+  width: 100%;
+  min-height: 8rem;
+  max-height: 13rem;
+  border-radius: 0.8rem;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border, rgba(255,255,255,.12));
+}
+
+.community-file-button {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.community-file-button input {
+  display: none;
+}
+
+.community-settings-order {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.community-settings-order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.community-settings-order-row > div {
+  display: flex;
+  gap: 0.4rem;
+}
+
+@media (max-width: 760px) {
+  .community-settings-media-grid {
+    grid-template-columns: 1fr;
+  }
+}
