@@ -17,6 +17,48 @@ function joinLabel(policy) {
   return "Invite only";
 }
 
+function CommunityIdentityMark({ community, className = "community-mark" }) {
+  const [imageUrl, setImageUrl] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadImage() {
+      if (!community?.profile_image_path) {
+        if (active) setImageUrl("");
+        return;
+      }
+
+      const { data, error } = await supabase.storage
+        .from("community-media")
+        .createSignedUrl(community.profile_image_path, 3600);
+
+      if (!active) return;
+      if (error) {
+        console.error("Community identity image failed:", error);
+        setImageUrl("");
+        return;
+      }
+      setImageUrl(data?.signedUrl || "");
+    }
+
+    loadImage();
+    return () => {
+      active = false;
+    };
+  }, [community?.profile_image_path]);
+
+  return (
+    <div className={`${className}${imageUrl ? " community-mark-has-image" : ""}`}>
+      {imageUrl ? (
+        <img src={imageUrl} alt="" />
+      ) : (
+        community?.name?.[0]?.toUpperCase() || "C"
+      )}
+    </div>
+  );
+}
+
 function CommunityCard({
   community,
   membership,
@@ -31,9 +73,7 @@ function CommunityCard({
   return (
     <article className="community-card">
       <div className="community-card-top">
-        <div className="community-mark">
-          {community.name?.[0]?.toUpperCase() || "C"}
-        </div>
+        <CommunityIdentityMark community={community} />
 
         <div className="community-card-title">
           <span className="community-kicker">
@@ -243,7 +283,7 @@ export default function Communities({
         supabase
           .from("communities")
           .select(
-            "id, owner_user_id, name, slug, description, discovery, join_policy, is_active, created_at"
+            "id, owner_user_id, name, slug, description, discovery, join_policy, profile_image_path, is_active, created_at"
           )
           .eq("is_active", true)
           .order("created_at", { ascending: false }),
@@ -1892,7 +1932,7 @@ export default function Communities({
     const { data: createdCommunity } = await supabase
       .from("communities")
       .select(
-        "id, owner_user_id, name, slug, description, discovery, join_policy, is_active, created_at"
+        "id, owner_user_id, name, slug, description, discovery, join_policy, profile_image_path, is_active, created_at"
       )
       .eq("id", communityId)
       .maybeSingle();
@@ -3919,7 +3959,12 @@ export default function Communities({
                   className="community-category"
                   key={`my-invitation-${invitation.id}`}
                 >
-                  <div>
+                  <div className="community-invitation-identity">
+                    <CommunityIdentityMark
+                      community={community || { name: "Community" }}
+                      className="community-mark community-mark-small"
+                    />
+                    <div>
                     <strong>
                       {community?.name || `Community #${invitation.community_id}`}
                     </strong>
@@ -3927,6 +3972,7 @@ export default function Communities({
                       Community invitation · expires{" "}
                       {new Date(invitation.expires_at).toLocaleDateString()}
                     </p>
+                    </div>
                   </div>
 
                   <div className="community-card-actions">
