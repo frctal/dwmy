@@ -1,9 +1,8 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 export default function Landing() {
   const [mode, setMode] = useState("landing");
-  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [loginIdentity, setLoginIdentity] = useState("");
   const [password, setPassword] = useState("");
@@ -126,42 +125,16 @@ export default function Landing() {
     setBusy(true);
 
     try {
-      if (mode === "signup") {
-        const cleanUsername = username.trim();
+      const resolvedEmail = await resolveLoginEmail(loginIdentity);
 
-        const { data, error: signUpError } =
-          await supabase.auth.signUp({
-            email: email.trim(),
-            password,
-            options: {
-              data: {
-                username: cleanUsername,
-                display_name: cleanUsername,
-              },
-            },
-          });
+      const { error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email: resolvedEmail,
+          password,
+        });
 
-        if (signUpError) throw signUpError;
-
-        if (data.session) {
-          setMessage("Account created. Entering DWMY...");
-        } else {
-          setMessage(
-            "Account created. Check your email to confirm your DWMY account."
-          );
-        }
-      } else {
-        const resolvedEmail = await resolveLoginEmail(loginIdentity);
-
-        const { error: signInError } =
-          await supabase.auth.signInWithPassword({
-            email: resolvedEmail,
-            password,
-          });
-
-        if (signInError) {
-          throw new Error("Invalid email/username or password.");
-        }
+      if (signInError) {
+        throw new Error("Invalid email/username or password.");
       }
     } catch (err) {
       setError(err.message || "Authentication failed.");
@@ -188,8 +161,8 @@ export default function Landing() {
 
         <div className="auth-card">
           <span className="eyebrow">
-            {mode === "signup"
-              ? "Join DWMY"
+            {mode === "closed"
+              ? "DWMY Beta"
               : mode === "forgot"
               ? "Account recovery"
               : mode === "recovery"
@@ -198,8 +171,8 @@ export default function Landing() {
           </span>
 
           <h1>
-            {mode === "signup"
-              ? "Create your account."
+            {mode === "closed"
+              ? "Registrations are temporarily closed."
               : mode === "forgot"
               ? "Reset your password."
               : mode === "recovery"
@@ -208,8 +181,8 @@ export default function Landing() {
           </h1>
 
           <p>
-            {mode === "signup"
-              ? "Your market conversations, organized across time."
+            {mode === "closed"
+              ? "DWMY Beta is currently closed to new registrations. Existing members can continue to sign in."
               : mode === "forgot"
               ? "Enter the email address connected to your DWMY account."
               : mode === "recovery"
@@ -217,7 +190,13 @@ export default function Landing() {
               : "Enter your market network."}
           </p>
 
-          {mode === "forgot" ? (
+          {mode === "closed" ? (
+            <div className="auth-switch">
+              <button onClick={() => openMode("signin")}>
+                Sign in to an existing account
+              </button>
+            </div>
+          ) : mode === "forgot" ? (
             <form onSubmit={requestPasswordReset}>
               <label>
                 Email
@@ -281,53 +260,20 @@ export default function Landing() {
             </form>
           ) : (
           <form onSubmit={submit}>
-            {mode === "signup" && (
-              <label>
-                Username
-                <input
-                  value={username}
-                  onChange={(e) =>
-                    setUsername(e.target.value)
-                  }
-                  placeholder="Choose a username"
-                  minLength={2}
-                  maxLength={24}
-                  pattern="[A-Za-z0-9_]+"
-                  required
-                />
-              </label>
-            )}
-
-            {mode === "signup" ? (
-              <label>
-                Email
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) =>
-                    setEmail(e.target.value)
-                  }
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  required
-                />
-              </label>
-            ) : (
-              <label>
-                Email or username
-                <input
-                  value={loginIdentity}
-                  onChange={(e) =>
-                    setLoginIdentity(e.target.value)
-                  }
-                  placeholder="Email or username"
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  required
-                />
-              </label>
-            )}
+            <label>
+              Email or username
+              <input
+                value={loginIdentity}
+                onChange={(e) =>
+                  setLoginIdentity(e.target.value)
+                }
+                placeholder="Email or username"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                required
+              />
+            </label>
 
             <label>
               Password
@@ -338,11 +284,7 @@ export default function Landing() {
                   setPassword(e.target.value)
                 }
                 placeholder="............"
-                autoComplete={
-                  mode === "signup"
-                    ? "new-password"
-                    : "current-password"
-                }
+                autoComplete="current-password"
                 minLength={6}
                 required
               />
@@ -365,11 +307,7 @@ export default function Landing() {
               type="submit"
               disabled={busy}
             >
-              {busy
-                ? "Please wait..."
-                : mode === "signup"
-                ? "Create Account"
-                : "Sign In"}
+              {busy ? "Please wait..." : "Sign In"}
             </button>
           </form>
           )}
@@ -382,28 +320,10 @@ export default function Landing() {
             </div>
           )}
 
-          {mode !== "recovery" && (
-          <div className="auth-switch">
-            {mode === "signup" ? (
-              <>
-                Already have an account?{" "}
-                <button
-                  onClick={() => openMode("signin")}
-                >
-                  Sign in
-                </button>
-              </>
-            ) : (
-              <>
-                Need an account?{" "}
-                <button
-                  onClick={() => openMode("signup")}
-                >
-                  Create one
-                </button>
-              </>
-            )}
-          </div>
+          {mode === "signin" && (
+            <div className="auth-switch">
+              New registrations are temporarily closed during DWMY Beta.
+            </div>
           )}
         </div>
       </div>
@@ -428,9 +348,9 @@ export default function Landing() {
 
           <button
             className="landing-join-small"
-            onClick={() => openMode("signup")}
+            onClick={() => openMode("closed")}
           >
-            Join DWMY
+            Beta Access
           </button>
         </div>
       </header>
@@ -464,9 +384,9 @@ export default function Landing() {
           <div className="landing-actions">
             <button
               className="landing-primary"
-              onClick={() => openMode("signup")}
+              onClick={() => openMode("closed")}
             >
-              Create Account
+              Beta Access
             </button>
 
             <button
