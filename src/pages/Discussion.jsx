@@ -171,6 +171,7 @@ export default function Discussion({
   const [mentionSuggestions, setMentionSuggestions] = useState([]);
   const [reactions, setReactions] = useState({});
   const [images, setImages] = useState([]);
+  const [lightboxImage, setLightboxImage] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   // Moderation V1.1 — user reporting.
@@ -298,6 +299,22 @@ export default function Discussion({
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!lightboxImage) return;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setLightboxImage(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [lightboxImage]);
 
   async function hydrateAttachments(rows) {
     return Promise.all(
@@ -1739,6 +1756,8 @@ export default function Discussion({
                                   "DWMY attachment"
                                 }
                                 loading="lazy"
+                                className="post-image-clickable"
+                                onClick={() => setLightboxImage(attachment)}
                               />
                             )
                           )}
@@ -1956,6 +1975,31 @@ export default function Discussion({
         </form>
       )}
 
+
+      {lightboxImage && (
+        <div
+          className="image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            className="image-lightbox-close"
+            onClick={() => setLightboxImage(null)}
+            aria-label="Close image"
+          >
+            ×
+          </button>
+
+          <img
+            src={lightboxImage.url}
+            alt={lightboxImage.file_name || "DWMY attachment"}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      )}
 
       {communityMemberAction && (
         <div className="moderation-modal-backdrop" role="presentation">

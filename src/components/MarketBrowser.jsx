@@ -14,7 +14,7 @@ export default function MarketBrowser({ openInstrument, openDirectory }) {
       setError("");
 
       const { data, error } = await supabase.rpc("get_market_discovery", {
-        market_limit: 6,
+        market_limit: 3,
         trader_limit: 3,
         lookback_days: 7,
       });
