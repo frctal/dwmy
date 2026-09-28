@@ -5748,3 +5748,21 @@ html[data-theme="light"] .post-actions {
     font-size: 28px;
   }
 }
+/* =========================================================
+   DWMY — Superscript Access Label
+   Uses the currently active accent color.
+   ========================================================= */
+
+.access-superscript {
+  display: inline-block;
+  margin-left: 4px;
+
+  font-size: 0.58em;
+  font-weight: 700;
+  line-height: 1;
+
+  vertical-align: super;
+  letter-spacing: 0.04em;
+
+  color: var(--accent);
+}

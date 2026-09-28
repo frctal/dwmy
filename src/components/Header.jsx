@@ -8,10 +8,14 @@ export default function Header({
   onOpenSettings,
   onLogout,
   onOpenSearchResult,
+  entitlements = [],
   unreadNotifications = 0,
   unreadMessages = 0,
 }) {
   const isAdmin = user.roles?.includes("ADMIN") || user.role === "admin";
+  const canUseConversations = entitlements.includes("CONVERSATIONS");
+  const canUseCommunities = entitlements.includes("COMMUNITIES");
+  const canUseMessaging = entitlements.includes("MESSAGING");
   const marketsActive =
     page === "home" ||
     page === "markets" || page === "instrument" || page === "discussion";
@@ -55,7 +59,6 @@ export default function Header({
       alive = false;
     };
   }, [user?.avatar_path]);
-
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -147,7 +150,6 @@ export default function Header({
 
     return () => window.clearInterval(timer);
   }, []);
-
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -339,15 +341,34 @@ export default function Header({
           </button>
           <button
             className={page === "conversations" ? "active" : ""}
-            onClick={() => setPage("conversations")}
+            onClick={() => {
+              if (canUseConversations) setPage("conversations");
+            }}
+            title={
+              canUseConversations
+                ? "Conversations"
+                : "DWMY Beta — currently available to Beta members"
+            }
+            aria-disabled={!canUseConversations}
           >
             Conversations
+            <span className="access-superscript">BETA</span>
           </button>
+
           <button
             className={communitiesActive ? "active" : ""}
-            onClick={() => setPage("communities")}
+            onClick={() => {
+              if (canUseCommunities) setPage("communities");
+            }}
+            title={
+              canUseCommunities
+                ? "Communities"
+                : "DWMY Beta — currently available to Beta members"
+            }
+            aria-disabled={!canUseCommunities}
           >
             Communities
+            <span className="access-superscript">BETA</span>
           </button>
         </nav>
 
@@ -426,11 +447,20 @@ export default function Header({
                 ? "header-icon-button active"
                 : "header-icon-button"
             }
-            onClick={() => setPage("messages")}
+            onClick={() => {
+              if (canUseMessaging) setPage("messages");
+            }}
             aria-label="Messages"
+            aria-disabled={!canUseMessaging}
+            title={
+              canUseMessaging
+                ? "Messages"
+                : "DWMY Pro — direct messaging"
+            }
           >
             Messages
-            {unreadMessages > 0 && (
+            <span className="access-superscript">PRO</span>
+            {canUseMessaging && unreadMessages > 0 && (
               <span className="header-badge">{unreadMessages}</span>
             )}
           </button>

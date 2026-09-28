@@ -291,6 +291,8 @@ export default function App() {
       "MARKETS",
       "CONVERSATIONS",
       "LIVE_CHAT",
+      "COMMUNITIES",
+      "MESSAGING",
       "EDUCATION",
     ];
 
@@ -593,6 +595,7 @@ export default function App() {
         onLogout={logout}
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
+        entitlements={entitlements}
       />
     );
   }
@@ -620,6 +623,7 @@ export default function App() {
         onOpenSearchResult={openSearchResult}
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
+        entitlements={entitlements}
       />
 
       <main
