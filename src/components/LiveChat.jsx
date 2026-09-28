@@ -1,4 +1,4 @@
-﻿import {
+import {
   useEffect,
   useRef,
   useState,
@@ -97,6 +97,7 @@ export default function LiveChat({
   scopeType = "PUBLIC",
   communityId = null,
   communityName = "",
+  canParticipate = true,
 }) {
   const normalizedScope = scopeType === "COMMUNITY" ? "COMMUNITY" : "PUBLIC";
   const scopedCommunityId =
@@ -514,14 +515,16 @@ export default function LiveChat({
               <div
                 className={`chat-row ${replyTarget?.id === item.id ? "reply-selected" : ""}`}
                 key={item.id}
-                role="button"
-                tabIndex={0}
-                title={`Reply to ${name}`}
+                role={canParticipate ? "button" : undefined}
+                tabIndex={canParticipate ? 0 : undefined}
+                title={canParticipate ? `Reply to ${name}` : undefined}
                 onClick={() => {
+                  if (!canParticipate) return;
                   setReplyTarget(item);
                   document.getElementById("dwmy-live-chat-input")?.focus();
                 }}
                 onKeyDown={(event) => {
+                  if (!canParticipate) return;
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     setReplyTarget(item);
@@ -600,6 +603,7 @@ export default function LiveChat({
           })}
       </div>
 
+      {canParticipate ? (
       <form
         className="chat-compose chat-compose-stacked"
         onSubmit={sendMessage}
@@ -667,6 +671,11 @@ export default function LiveChat({
           </button>
         </div>
       </form>
+      ) : (
+        <div className="market-directory-state">
+          Live Chat is visible to DWMY Free members. Participation is currently available to DWMY Beta members.
+        </div>
+      )}
     </section>
   );
 }

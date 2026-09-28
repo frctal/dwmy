@@ -11,6 +11,7 @@ export default function Home({
   openDiscussion,
   openInstrument,
   openDirectory,
+  entitlements = [],
 }) {
   const [heroSlide, setHeroSlide] = useState(0);
 
@@ -171,7 +172,10 @@ export default function Home({
         />
       </div>
 
-      <LiveChat user={user} />
+      <LiveChat
+        user={user}
+        canParticipate={entitlements.includes("LIVE_CHAT")}
+      />
     </>
   );
 }
