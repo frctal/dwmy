@@ -346,7 +346,7 @@ export default function Header({
 
         <button className="brand" onClick={() => setPage("home")}>
           DWMY
-          <small>a FRCTAL company</small>
+          <small>a FRCTAL Company</small>
         </button>
 
         <nav className="main-nav">

@@ -228,7 +228,7 @@ export default function Landing() {
           onClick={() => openMode("landing")}
         >
           DWMY
-          <small>a FRCTAL company</small>
+          <small>a FRCTAL Company</small>
         </button>
 
         <div className="auth-card">
@@ -476,7 +476,7 @@ export default function Landing() {
       <header className="landing-nav">
         <div className="landing-logo">
           DWMY
-          <small>a FRCTAL company</small>
+          <small>a FRCTAL Company</small>
         </div>
 
         <div>
@@ -694,7 +694,7 @@ export default function Landing() {
 
       <footer className="landing-footer">
         <strong>DWMY</strong>
-        <span>a FRCTAL company</span>
+        <span>a FRCTAL Company</span>
       </footer>
     </div>
   );

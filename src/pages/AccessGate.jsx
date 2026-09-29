@@ -53,7 +53,7 @@ export default function AccessGate({
         <div className="access-gate-brand">
           <strong>DWMY</strong>
 
-          <span>a FRCTAL company</span>
+          <span>a FRCTAL Company</span>
         </div>
 
         <div className="access-gate-copy">
