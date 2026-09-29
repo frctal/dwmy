@@ -239,6 +239,8 @@ export default function Discussion({
     user.roles?.includes("ADMIN") ||
     user.role === "admin";
 
+  const isConversationDraft = Boolean(discussion.isDraft);
+
   const isConversation =
     discussion.discussionType === "CONVERSATION";
 
@@ -269,15 +271,23 @@ export default function Discussion({
     (Boolean(discussion.marketReplyOnly) || isArchivedMarketDiscussion(discussion));
 
   const draftKey = `dwmy:discussion-draft:${user.id}:${discussion.id}`;
+  const draftTitleKey = `${draftKey}:title`;
 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(draftKey);
       if (saved) setReply(saved);
+      if (isConversationDraft) {
+        const savedTitle = window.localStorage.getItem(draftTitleKey);
+        if (savedTitle) {
+          setConversationTitleDraft(savedTitle);
+          setConversationTitle(savedTitle);
+        }
+      }
     } catch (err) {
       console.warn("Draft restore unavailable:", err);
     }
-  }, [draftKey]);
+  }, [draftKey, draftTitleKey, isConversationDraft]);
 
   useEffect(() => {
     try {
@@ -287,6 +297,16 @@ export default function Discussion({
       console.warn("Draft save unavailable:", err);
     }
   }, [draftKey, reply]);
+
+  useEffect(() => {
+    if (!isConversationDraft) return;
+    try {
+      if (conversationTitleDraft) window.localStorage.setItem(draftTitleKey, conversationTitleDraft);
+      else window.localStorage.removeItem(draftTitleKey);
+    } catch (err) {
+      console.warn("Draft title save unavailable:", err);
+    }
+  }, [draftTitleKey, conversationTitleDraft, isConversationDraft]);
 
   useEffect(() => {
     previewRef.current = images;
@@ -662,11 +682,19 @@ export default function Discussion({
   }
 
   useEffect(() => {
+    if (isConversationDraft) {
+      setPosts([]);
+      setLoading(false);
+      setRestrictionLoading(false);
+      setPostingRestriction(null);
+      return;
+    }
+
     loadPosts();
     loadConversationState();
     loadCommunityModerationState();
     loadPostingRestriction();
-  }, [discussion.id]);
+  }, [discussion.id, isConversationDraft]);
 
   useEffect(() => {
     if (loading || posts.length === 0) return;
@@ -841,6 +869,86 @@ export default function Discussion({
     }
 
     const body = normalizeMessageSpacing(reply).trim();
+
+    if (isConversationDraft) {
+      const title = conversationTitleDraft.trim();
+      if (!title) {
+        setError("Conversation title is required.");
+        return;
+      }
+      if (!body) {
+        setError("Write an opening post before starting the conversation.");
+        return;
+      }
+
+      setPosting(true);
+      setError("");
+
+      try {
+        const isCommunityDraft =
+          discussion.discussionType === "COMMUNITY";
+
+        const { data, error: publishError } = isCommunityDraft
+          ? await supabase.rpc(
+              "create_community_conversation_with_post",
+              {
+                target_community_id: discussion.communityId,
+                target_category_id: discussion.communityCategoryId ?? null,
+                discussion_title: title,
+                opening_body: body,
+              }
+            )
+          : await supabase.rpc(
+              "create_conversation_with_post",
+              {
+                target_section_id: discussion.sectionId,
+                discussion_title: title,
+                opening_body: body,
+              }
+            );
+
+        if (publishError) throw publishError;
+
+        const result = Array.isArray(data) ? data[0] : data;
+        const discussionId = result?.discussion_id;
+        const postId = result?.post_id;
+        if (!discussionId || !postId) {
+          throw new Error("Conversation publish did not return its discussion and opening post.");
+        }
+
+        for (const image of images) {
+          await uploadAttachment(postId, image);
+        }
+
+        images.forEach((image) => URL.revokeObjectURL(image.url));
+        setImages([]);
+        setReply("");
+        setShowEmojiPicker(false);
+        try {
+          window.localStorage.removeItem(draftKey);
+          window.localStorage.removeItem(draftTitleKey);
+        } catch (storageError) {
+          console.warn("Draft cleanup unavailable:", storageError);
+        }
+
+        discussion.onDraftPublished?.({
+          ...discussion,
+          id: discussionId,
+          isDraft: false,
+          title,
+          instrument: title,
+          replies: 1,
+          lastActivityAt: new Date().toISOString(),
+          onDraftPublished: undefined,
+        });
+      } catch (err) {
+        console.error(err);
+        setError(err.message || "Unable to start conversation.");
+      } finally {
+        setPosting(false);
+      }
+      return;
+    }
 
     if (!body && images.length === 0) return;
 
@@ -1293,7 +1401,7 @@ export default function Discussion({
           &lt;- Back to forum
         </button>
 
-        {(isAdmin ||
+        {!isConversationDraft && (isAdmin ||
           (isCommunityConversation &&
             (communityModeration.canRemoveContent ||
               communityModeration.canLockDiscussion))) && (
@@ -1359,7 +1467,7 @@ export default function Discussion({
               Conversations
             </button>
             <span>&gt;</span>
-            <span>{conversationTitle}</span>
+            <span>{isConversationDraft ? "New Conversation" : conversationTitle}</span>
           </div>
 
           <section className="discussion-header">
@@ -1368,12 +1476,29 @@ export default function Discussion({
                 {isCommunityConversation ? "COMMUNITY CONVERSATION" : "DWMY CONVERSATION"}
               </span>
 
-              <h1>{conversationTitle}</h1>
+              {isConversationDraft ? (
+                <input
+                  className="conversation-draft-title"
+                  value={conversationTitleDraft}
+                  onChange={(event) => {
+                    setConversationTitleDraft(event.target.value);
+                    setConversationTitle(event.target.value);
+                  }}
+                  maxLength={200}
+                  autoFocus
+                  placeholder="Conversation title"
+                  aria-label="Conversation title"
+                />
+              ) : (
+                <h1>{conversationTitle}</h1>
+              )}
 
               <p>
-                {isCommunityConversation
-                  ? `${discussion.communityName || "Community"} conversation.`
-                  : "Free-form community discussion."}
+                {isConversationDraft
+                  ? `Write the opening post for ${discussion.communityCategoryName || discussion.communityName || "this Community"}. Nothing is public until you start the conversation.`
+                  : isCommunityConversation
+                    ? `${discussion.communityName || "Community"} conversation.`
+                    : "Free-form community discussion."}
               </p>
             </div>
 
@@ -1835,7 +1960,7 @@ export default function Discussion({
           }
         >
           <div className="reply-heading">
-            <strong>{replyTarget ? `Reply to ${authorName(replyTarget)}` : marketReplyOnly ? "Archived market discussion" : "Reply to discussion"}</strong>
+            <strong>{isConversationDraft ? "Start the conversation" : replyTarget ? `Reply to ${authorName(replyTarget)}` : marketReplyOnly ? "Archived market discussion" : "Reply to discussion"}</strong>
 
             <span>
               Paste screenshots with Ctrl+V or drag
@@ -1891,7 +2016,7 @@ export default function Discussion({
             id="dwmy-reply-composer"
             value={reply}
             onChange={handleReplyChange}
-            placeholder={marketReplyOnly && !replyTarget ? "This period is archived — choose Reply on an existing post." : "Write your reply or paste a screenshot..."}
+            placeholder={isConversationDraft ? "Write the opening post or paste a screenshot..." : marketReplyOnly && !replyTarget ? "This period is archived — choose Reply on an existing post." : "Write your reply or paste a screenshot..."}
             disabled={posting || (marketReplyOnly && !replyTarget)}
           />
 
@@ -1960,6 +2085,28 @@ export default function Discussion({
               />
             </label>
 
+            {isConversationDraft && (
+              <button
+                type="button"
+                className="dwmy-text-button"
+                disabled={posting}
+                onClick={() => {
+                  if ((conversationTitleDraft.trim() || reply.trim() || images.length > 0) &&
+                      !window.confirm("Discard this conversation draft?")) return;
+                  try {
+                    window.localStorage.removeItem(draftKey);
+                    window.localStorage.removeItem(draftTitleKey);
+                  } catch (err) {
+                    console.warn("Draft cleanup unavailable:", err);
+                  }
+                  images.forEach((image) => URL.revokeObjectURL(image.url));
+                  goBack();
+                }}
+              >
+                Discard
+              </button>
+            )}
+
             <button
               type="submit"
               className="primary-button"
@@ -1967,7 +2114,9 @@ export default function Discussion({
             >
               {posting
                 ? "Publishing..."
-                : "Post Reply"}
+                : isConversationDraft
+                  ? "Start Conversation"
+                  : "Post Reply"}
             </button>
           </div>
             </>

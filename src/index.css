@@ -5766,3 +5766,343 @@ html[data-theme="light"] .post-actions {
 
   color: var(--accent);
 }
+/* DWMY — lift Full Market Directory link */
+.market-discovery-title .directory-link-button {
+  transform: translateY(-12px);
+}
+
+/* =========================================================
+   DWMY RESPONSIVE HEADER V1
+   Wide desktop remains unchanged. Compact states move only
+   lower-priority account controls before the mobile collapse.
+   ========================================================= */
+
+.header-menu-toggle,
+.header-responsive-menu {
+  display: none;
+}
+
+/* Compact desktop: preserve live status + market session. */
+@media (max-width: 1280px) and (min-width: 901px) {
+  .header-inner {
+    width: min(1180px, calc(100% - 32px));
+  }
+
+  .presence-edge-left {
+    right: auto;
+    left: 0;
+    transform: translateY(-50%) translateX(-2px);
+  }
+
+  .presence-edge-right {
+    left: auto;
+    right: 0;
+    transform: translateY(-50%) translateX(2px);
+  }
+
+  .brand {
+    margin-left: 92px;
+  }
+
+  .main-nav {
+    margin-left: 20px;
+    gap: 2px;
+  }
+
+  .main-nav button,
+  .header-actions button {
+    padding-right: 8px;
+    padding-left: 8px;
+    font-size: 11px;
+  }
+
+  .header-actions {
+    gap: 3px;
+    margin-right: 104px;
+    flex-wrap: nowrap;
+  }
+
+  .user-identity,
+  .logout-button,
+  .admin-button {
+    display: none;
+  }
+
+  .avatar {
+    margin-left: 0;
+  }
+
+  .header-menu-toggle {
+    width: 34px;
+    height: 34px;
+    display: grid !important;
+    place-content: center;
+    gap: 3px;
+    padding: 0 !important;
+  }
+
+  .header-menu-toggle > span {
+    width: 14px;
+    height: 1px;
+    display: block;
+    background: currentColor;
+  }
+
+  .header-responsive-menu {
+    position: absolute;
+    z-index: 130;
+    top: calc(100% + 10px);
+    right: 104px;
+    width: 260px;
+    display: grid;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.42);
+  }
+
+  .header-responsive-menu .header-responsive-nav:first-of-type,
+  .header-responsive-status {
+    display: none;
+  }
+}
+
+/* Narrow tablet: status remains visible, primary navigation moves to menu. */
+@media (max-width: 900px) and (min-width: 701px) {
+  .header-inner {
+    width: calc(100% - 28px);
+  }
+
+  .presence-edge {
+    display: flex;
+  }
+
+  .presence-edge-left {
+    right: auto;
+    left: 112px;
+  }
+
+  .presence-edge-right {
+    left: auto;
+    right: 100px;
+  }
+
+  .main-nav,
+  .header-search,
+  .header-icon-button,
+  .admin-button,
+  .user-identity,
+  .logout-button {
+    display: none;
+  }
+
+  .header-actions {
+    margin-left: auto;
+    gap: 5px;
+    flex-wrap: nowrap;
+  }
+
+  .avatar {
+    margin-left: 0;
+  }
+
+  .header-menu-toggle {
+    width: 36px;
+    height: 36px;
+    display: grid !important;
+    place-content: center;
+    gap: 4px;
+    padding: 0 !important;
+  }
+
+  .header-menu-toggle > span {
+    width: 15px;
+    height: 1px;
+    display: block;
+    background: currentColor;
+  }
+
+  .header-responsive-menu {
+    position: absolute;
+    z-index: 130;
+    top: calc(100% + 10px);
+    right: 0;
+    width: min(310px, calc(100vw - 28px));
+    display: grid;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.42);
+  }
+
+  .header-responsive-status {
+    display: none;
+  }
+}
+
+.header-responsive-nav {
+  display: grid;
+  padding: 6px;
+}
+
+.header-responsive-nav + .header-responsive-nav,
+.header-responsive-account {
+  border-top: 1px solid var(--border-soft);
+}
+
+.header-responsive-nav button,
+.header-responsive-account button {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 11px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.header-responsive-nav button:hover,
+.header-responsive-account button:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.header-responsive-nav button[aria-disabled="true"] {
+  opacity: 0.62;
+}
+
+.header-responsive-account {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+}
+
+.header-responsive-account > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-responsive-account .avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  margin-left: 0;
+}
+
+.header-responsive-account .user-identity {
+  display: flex;
+  margin-right: 0;
+}
+
+/* Mobile: brand + avatar + menu. Status moves inside the menu last. */
+@media (max-width: 700px) {
+  .site-header {
+    height: 62px;
+  }
+
+  .header-inner {
+    width: calc(100% - 24px);
+  }
+
+  .main-nav,
+  .header-search,
+  .header-icon-button,
+  .admin-button,
+  .user-identity,
+  .logout-button,
+  .presence-edge {
+    display: none;
+  }
+
+  .header-actions {
+    margin-left: auto;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .user-menu {
+    gap: 4px;
+  }
+
+  .user-account-button {
+    padding: 4px !important;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    margin-left: 0;
+  }
+
+  .header-menu-toggle {
+    width: 36px;
+    height: 36px;
+    display: grid !important;
+    place-content: center;
+    gap: 4px;
+    padding: 0 !important;
+  }
+
+  .header-menu-toggle > span {
+    width: 16px;
+    height: 1px;
+    display: block;
+    background: currentColor;
+  }
+
+  .header-responsive-menu {
+    position: absolute;
+    z-index: 130;
+    top: calc(100% + 8px);
+    right: 0;
+    left: 0;
+    width: auto;
+    display: grid;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.42);
+  }
+
+  .header-responsive-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--muted);
+    font-size: 8px;
+  }
+
+  .header-responsive-status > span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+
+  .header-responsive-status strong {
+    color: var(--text);
+  }
+
+  .header-responsive-status i {
+    font-style: normal;
+  }
+
+  .header-search-panel {
+    position: fixed;
+    top: 66px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    transform: none;
+  }
+}

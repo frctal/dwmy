@@ -42,6 +42,8 @@ function toDiscussion(row) {
     segmentEnd: null,
 
     title: row.title,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
 
     locked: row.is_locked || false,
     isDeleted: row.is_deleted || false,
@@ -67,6 +69,133 @@ export default function Conversations({
 
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
+  const [conversationPeople, setConversationPeople] = useState({});
+
+  const totalParticipants = new Set(
+    Object.values(conversationPeople)
+      .flatMap((people) => [
+        people?.starter?.id,
+        ...(people?.participants || []).map((profile) => profile?.id),
+      ])
+      .filter(Boolean)
+  ).size;
+
+  async function loadConversationPeople(rows) {
+    const discussionIds = (rows || []).map((row) => row.id);
+    if (!discussionIds.length) {
+      setConversationPeople({});
+      return;
+    }
+
+    const { data: postRows, error: postError } = await supabase
+      .from("posts")
+      .select(`
+        discussion_id,
+        author_id,
+        created_at,
+        profiles!posts_author_id_fkey (
+          id,
+          username,
+          display_name,
+          avatar_path
+        )
+      `)
+      .in("discussion_id", discussionIds)
+      .eq("is_deleted", false)
+      .order("created_at", { ascending: true });
+
+    if (postError) {
+      console.error("Conversation people load failed:", postError);
+      setConversationPeople({});
+      return;
+    }
+
+    const profiles = new Map();
+    for (const row of rows || []) {
+      if (row.profiles?.id) profiles.set(row.profiles.id, row.profiles);
+    }
+    for (const post of postRows || []) {
+      if (post.profiles?.id) profiles.set(post.profiles.id, post.profiles);
+    }
+
+    const signed = new Map();
+    await Promise.all(Array.from(profiles.values()).map(async (profile) => {
+      let avatarUrl = null;
+      if (profile.avatar_path) {
+        const { data, error } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(profile.avatar_path, 60 * 60);
+        if (!error) avatarUrl = data?.signedUrl || null;
+      }
+      signed.set(profile.id, { ...profile, avatar_url: avatarUrl });
+    }));
+
+    const next = {};
+    for (const row of rows || []) {
+      const threadPosts = (postRows || []).filter((post) => post.discussion_id === row.id);
+      const starter = signed.get(row.created_by) || signed.get(threadPosts[0]?.author_id) || null;
+      const participantIds = [];
+      for (const post of threadPosts) {
+        if (post.author_id && post.author_id !== row.created_by && !participantIds.includes(post.author_id)) {
+          participantIds.push(post.author_id);
+        }
+      }
+      next[row.id] = {
+        starter,
+        participants: participantIds.map((id) => signed.get(id)).filter(Boolean),
+      };
+    }
+    setConversationPeople(next);
+  }
+
+  function profileName(profile) {
+    return profile?.display_name || profile?.username || "DWMY User";
+  }
+
+  function ProfileBubble({ profile, small = false }) {
+    const name = profileName(profile);
+    return (
+      <span className={`conversation-person-bubble ${small ? "small" : ""}`} title={name}>
+        {profile?.avatar_url ? <img src={profile.avatar_url} alt="" loading="lazy" /> : (name[0]?.toUpperCase() || "D")}
+      </span>
+    );
+  }
+
+  function ParticipantStack({ people = [], limit = 4 }) {
+    const shown = people.slice(0, limit);
+    const remaining = Math.max(0, people.length - shown.length);
+    return (
+      <span className="conversation-participant-stack">
+        {shown.map((profile) => <ProfileBubble key={profile.id} profile={profile} small />)}
+        {remaining > 0 && <span className="conversation-participant-more">+{remaining}</span>}
+      </span>
+    );
+  }
+
+  function renderConversationIdentity(conversation) {
+    const people = conversationPeople[conversation.id] || {};
+    const starter = people.starter;
+    const participants = people.participants || [];
+    const count = participants.length;
+
+    return (
+      <div className="conversation-identity conversation-identity-starter">
+        <ProfileBubble profile={starter} />
+
+        <span className="identity-copy">
+          <small>Started by</small>
+          <strong>{profileName(starter)}</strong>
+        </span>
+
+        {count > 0 && (
+          <span className="identity-participants">
+            <small>Participants</small>
+            <ParticipantStack people={participants} />
+          </span>
+        )}
+      </div>
+    );
+  }
 
   async function loadConversations() {
     setLoading(true);
@@ -111,6 +240,12 @@ export default function Conversations({
         reply_count,
         is_locked,
         is_deleted,
+        profiles!discussions_created_by_fkey (
+          id,
+          username,
+          display_name,
+          avatar_path
+        ),
         sections (
           id,
           name,
@@ -137,6 +272,7 @@ export default function Conversations({
       setConversations(
         (data || []).map(toDiscussion)
       );
+      await loadConversationPeople(data || []);
     }
 
     setLoading(false);
@@ -146,67 +282,39 @@ export default function Conversations({
     loadConversations();
   }, []);
 
-  async function createConversation(event) {
+  function createConversation(event) {
     event.preventDefault();
-
     const clean = title.trim();
-
     if (!clean || !section) return;
-
     setCreating(true);
     setError("");
-
-    const {
-      data,
-      error: createError,
-    } = await supabase
-      .from("discussions")
-      .insert({
-        discussion_type: "CONVERSATION",
-        section_id: section.id,
-        instrument_id: null,
-        segment_type: null,
-        segment_start: null,
-        segment_end: null,
-        title: clean,
-        created_by: user.id,
-      })
-      .select(`
-        id,
-        discussion_type,
-        section_id,
-        title,
-        created_by,
-        created_at,
-        last_activity_at,
-        reply_count,
-        is_locked,
-        is_deleted,
-        sections (
-          id,
-          name,
-          slug,
-          section_type
-        )
-      `)
-      .single();
-
-    if (createError) {
-      console.error(
-        "Conversation creation failed:",
-        createError
-      );
-
-      setError(createError.message);
-      setCreating(false);
-      return;
-    }
-
-    setTitle("");
+    const draftDiscussion = {
+      id: `draft-conversation:${section.id}:${crypto.randomUUID()}`,
+      discussionType: "CONVERSATION",
+      sectionId: section.id,
+      section: section.name || "Conversations",
+      instrumentId: null,
+      instrument: clean,
+      instrumentName: null,
+      segmentType: null,
+      segmentStart: null,
+      segmentEnd: null,
+      title: clean,
+      locked: false,
+      isDeleted: false,
+      replies: 0,
+      lastActivityAt: null,
+      isDraft: true,
+      onDraftPublished: (publishedDiscussion) => {
+        setTitle("");
+        setShowCreate(false);
+        setCreating(false);
+        openDiscussion(publishedDiscussion);
+      },
+    };
     setShowCreate(false);
     setCreating(false);
-
-    openDiscussion(toDiscussion(data));
+    openDiscussion(draftDiscussion);
   }
 
   return (
@@ -298,7 +406,8 @@ export default function Conversations({
           <h2>Conversations</h2>
 
           <span className="muted">
-            {conversations.length} active
+            {conversations.length} active · {totalParticipants}{" "}
+            {totalParticipants === 1 ? "participant" : "participants"}
           </span>
         </div>
 
@@ -342,21 +451,14 @@ export default function Conversations({
                     {conversation.title}
                   </div>
 
-                  <div className="discussion-meta">
-                    <span className="segment-badge">
-                      CONVERSATION
-                    </span>
-
-                    {conversation.locked && (
+                  {conversation.locked && (
+                    <div className="discussion-meta">
                       <span className="segment-badge">
                         LOCKED
                       </span>
-                    )}
-
-                    <span>
-                      DWMY Community
-                    </span>
-                  </div>
+                    </div>
+                  )}
+                  {renderConversationIdentity(conversation)}
                 </div>
 
                 <div className="discussion-stats">
@@ -388,6 +490,88 @@ export default function Conversations({
             ))}
         </div>
       </section>
+      <style>{`
+        .conversation-person-bubble {
+          width: 34px;
+          height: 34px;
+          flex: 0 0 34px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .conversation-person-bubble.small {
+          width: 25px;
+          height: 25px;
+          flex-basis: 25px;
+          font-size: 10px;
+        }
+
+        .conversation-person-bubble img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .conversation-participant-stack {
+          display: inline-flex;
+          align-items: center;
+          padding-left: 5px;
+        }
+
+        .conversation-participant-stack .conversation-person-bubble {
+          margin-left: -5px;
+          box-shadow: 0 0 0 2px var(--panel);
+        }
+
+        .conversation-participant-more {
+          margin-left: 5px;
+          font-size: 11px;
+          font-weight: 700;
+          opacity: 0.7;
+        }
+
+        .conversation-identity-starter {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 9px;
+          font-size: 12px;
+        }
+
+        .identity-copy {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .conversation-identity-starter small {
+          opacity: 0.58;
+        }
+
+        .identity-participants {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-left: 8px;
+        }
+
+        @media (max-width: 760px) {
+          .conversation-identity-starter {
+            align-items: flex-start;
+            flex-wrap: wrap;
+          }
+
+          .identity-participants {
+            margin-left: 0;
+          }
+        }
+      `}</style>
     </div>
   );
 }

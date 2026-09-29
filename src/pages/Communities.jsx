@@ -179,6 +179,7 @@ export default function Communities({
   });
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [communityDiscussions, setCommunityDiscussions] = useState([]);
+  const [communityConversationPeople, setCommunityConversationPeople] = useState({});
   const [discussionLoading, setDiscussionLoading] = useState(false);
   const [discussionCreating, setDiscussionCreating] = useState(false);
   const [discussionTitle, setDiscussionTitle] = useState("");
@@ -488,6 +489,250 @@ export default function Communities({
     return data || [];
   }
 
+  async function loadCommunityConversationPeople(discussions) {
+    const discussionIds = (discussions || []).map((discussion) => discussion.id);
+
+    if (!discussionIds.length) {
+      setCommunityConversationPeople({});
+      return;
+    }
+
+    const { data: postRows, error: postError } = await supabase
+      .from("posts")
+      .select(`
+        discussion_id,
+        author_id,
+        created_at,
+        profiles!posts_author_id_fkey (
+          id,
+          username,
+          display_name,
+          avatar_path
+        )
+      `)
+      .in("discussion_id", discussionIds)
+      .eq("is_deleted", false)
+      .order("created_at", { ascending: true });
+
+    if (postError) {
+      console.error("Community conversation people load failed:", postError);
+      setCommunityConversationPeople({});
+      return;
+    }
+
+    const authorIds = Array.from(
+      new Set(
+        (discussions || [])
+          .map((discussion) => discussion.created_by)
+          .filter(Boolean)
+      )
+    );
+
+    let creatorProfiles = [];
+
+    if (authorIds.length) {
+      const { data, error: creatorError } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_path")
+        .in("id", authorIds);
+
+      if (creatorError) {
+        console.error("Community conversation starters load failed:", creatorError);
+      } else {
+        creatorProfiles = data || [];
+      }
+    }
+
+    const profiles = new Map();
+
+    for (const profile of creatorProfiles) {
+      profiles.set(profile.id, profile);
+    }
+
+    for (const post of postRows || []) {
+      if (post.profiles?.id) {
+        profiles.set(post.profiles.id, post.profiles);
+      }
+    }
+
+    const signedProfiles = new Map();
+
+    await Promise.all(
+      Array.from(profiles.values()).map(async (profile) => {
+        let avatarUrl = null;
+
+        if (profile.avatar_path) {
+          const { data, error: avatarError } = await supabase.storage
+            .from("avatars")
+            .createSignedUrl(profile.avatar_path, 60 * 60);
+
+          if (avatarError) {
+            console.error("Community conversation avatar load failed:", avatarError);
+          } else {
+            avatarUrl = data?.signedUrl || null;
+          }
+        }
+
+        signedProfiles.set(profile.id, {
+          ...profile,
+          avatar_url: avatarUrl,
+        });
+      })
+    );
+
+    const next = {};
+
+    for (const discussion of discussions || []) {
+      const threadPosts = (postRows || []).filter(
+        (post) => post.discussion_id === discussion.id
+      );
+
+      const starter =
+        signedProfiles.get(discussion.created_by) ||
+        signedProfiles.get(threadPosts[0]?.author_id) ||
+        null;
+
+      const participantIds = [];
+
+      for (const post of threadPosts) {
+        if (
+          post.author_id &&
+          post.author_id !== discussion.created_by &&
+          !participantIds.includes(post.author_id)
+        ) {
+          participantIds.push(post.author_id);
+        }
+      }
+
+      next[discussion.id] = {
+        starter,
+        participants: participantIds
+          .map((id) => signedProfiles.get(id))
+          .filter(Boolean),
+      };
+    }
+
+    setCommunityConversationPeople(next);
+  }
+
+  function communityConversationProfileName(profile) {
+    return profile?.display_name || profile?.username || "DWMY User";
+  }
+
+  function CommunityConversationAvatar({ profile, small = false }) {
+    const name = communityConversationProfileName(profile);
+
+    return (
+      <span
+        title={name}
+        aria-label={name}
+        style={{
+          width: small ? 25 : 34,
+          height: small ? 25 : 34,
+          flex: `0 0 ${small ? 25 : 34}px`,
+          borderRadius: "50%",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          border: "1px solid var(--border)",
+          background: "var(--surface)",
+          fontSize: small ? 10 : 12,
+          fontWeight: 800,
+        }}
+      >
+        {profile?.avatar_url ? (
+          <img
+            src={profile.avatar_url}
+            alt=""
+            loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          name[0]?.toUpperCase() || "D"
+        )}
+      </span>
+    );
+  }
+
+  function CommunityConversationParticipants({ people = [], limit = 4 }) {
+    const shown = people.slice(0, limit);
+    const remaining = Math.max(0, people.length - shown.length);
+
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", paddingLeft: 5 }}>
+        {shown.map((profile) => (
+          <span
+            key={profile.id}
+            style={{ marginLeft: -5, display: "inline-flex" }}
+          >
+            <CommunityConversationAvatar profile={profile} small />
+          </span>
+        ))}
+
+        {remaining > 0 && (
+          <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, opacity: 0.7 }}>
+            +{remaining}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  function renderCommunityConversationIdentity(discussion) {
+    const people = communityConversationPeople[discussion.id] || {};
+    const starter = people.starter;
+    const participants = people.participants || [];
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 9,
+          fontSize: 12,
+        }}
+      >
+        <CommunityConversationAvatar profile={starter} />
+
+        <span style={{ display: "flex", flexDirection: "column" }}>
+          <small style={{ opacity: 0.58 }}>Started by</small>
+          <strong>{communityConversationProfileName(starter)}</strong>
+        </span>
+
+        {participants.length > 0 && (
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginLeft: 8,
+            }}
+          >
+            <small style={{ opacity: 0.58 }}>Participants</small>
+            <CommunityConversationParticipants people={participants} />
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  function communityConversationParticipantTotal(discussions) {
+    return new Set(
+      (discussions || [])
+        .flatMap((discussion) => {
+          const people = communityConversationPeople[discussion.id] || {};
+          return [
+            people.starter?.id,
+            ...(people.participants || []).map((profile) => profile?.id),
+          ];
+        })
+        .filter(Boolean)
+    ).size;
+  }
+
   async function openCommunity(community) {
     setSelectedCommunity(community);
     setCommunityLoading(true);
@@ -501,6 +746,7 @@ export default function Communities({
     setCommunityMarketSegment("DAY");
     setCommunityMarketHistory([]);
     setCommunityDiscussions([]);
+    setCommunityConversationPeople({});
     setDiscussionTitle("");
 
     const [, , , , permissionResult, createDiscussionPermission, discussionResult] = await Promise.all([
@@ -550,7 +796,9 @@ export default function Communities({
       console.error("Community conversations load failed:", discussionResult.error);
       setCommunityDiscussions([]);
     } else {
-      setCommunityDiscussions(discussionResult.data || []);
+      const loadedDiscussions = discussionResult.data || [];
+      setCommunityDiscussions(loadedDiscussions);
+      await loadCommunityConversationPeople(loadedDiscussions);
     }
 
     setCommunityLoading(false);
@@ -1810,7 +2058,9 @@ export default function Communities({
       setError(discussionError.message);
       setCommunityDiscussions([]);
     } else {
-      setCommunityDiscussions(data || []);
+      const loadedDiscussions = data || [];
+      setCommunityDiscussions(loadedDiscussions);
+      await loadCommunityConversationPeople(loadedDiscussions);
     }
 
     setDiscussionLoading(false);
@@ -1821,7 +2071,7 @@ export default function Communities({
     return openCategoryForCommunity(selectedCommunity, category);
   }
 
-  async function createCommunityDiscussion(event) {
+  function createCommunityDiscussion(event) {
     event.preventDefault();
     if (!selectedCommunity) return;
 
@@ -1831,36 +2081,44 @@ export default function Communities({
       return;
     }
 
-    setDiscussionCreating(true);
     setError("");
     setNotice("");
 
-    const { error: createError } = await supabase.rpc(
-      "create_community_discussion",
-      {
-        target_community_id: selectedCommunity.id,
-        target_category_id: selectedCategory?.id ?? null,
-        discussion_title: title,
-      }
-    );
+    const returnTarget = {
+      communityId: selectedCommunity.id,
+      categoryId: selectedCategory?.id ?? null,
+    };
 
-    if (createError) {
-      console.error("Community discussion creation failed:", createError);
-      setError(createError.message);
-      setDiscussionCreating(false);
-      return;
-    }
+    const draftDiscussion = {
+      id: `draft-community-conversation:${selectedCommunity.id}:${selectedCategory?.id ?? "root"}:${crypto.randomUUID()}`,
+      discussionType: "COMMUNITY",
+      sectionId: null,
+      section: selectedCommunity.name,
+      instrumentId: null,
+      instrument: title,
+      instrumentName: selectedCategory?.name || selectedCommunity.name,
+      segmentType: null,
+      segmentStart: null,
+      segmentEnd: null,
+      communityId: selectedCommunity.id,
+      communityCategoryId: selectedCategory?.id ?? null,
+      communityCategoryName: selectedCategory?.name || null,
+      communityName: selectedCommunity.name,
+      title,
+      locked: false,
+      replies: 0,
+      lastActivityAt: null,
+      isDraft: true,
+      onDraftPublished: (publishedDiscussion) => {
+        setDiscussionTitle("");
+        setShowDiscussionCreate(false);
+        setNotice("");
+        openDiscussion?.(publishedDiscussion, returnTarget);
+      },
+    };
 
-    setDiscussionTitle("");
     setShowDiscussionCreate(false);
-    setNotice(`${title} was created.`);
-    if (selectedCategory) {
-      await openCategory(selectedCategory);
-    } else {
-      await openCommunity(selectedCommunity);
-    }
-    setNotice(`${title} was created.`);
-    setDiscussionCreating(false);
+    openDiscussion?.(draftDiscussion, returnTarget);
   }
 
   async function createCommunity(event) {
@@ -2000,7 +2258,13 @@ export default function Communities({
             <p>{selectedCategory.description || "Community conversations"}</p>
             <div className="community-detail-meta">
               <span>{selectedCommunity.name}</span>
-              <span>{communityDiscussions.length} active</span>
+              <span>
+                {communityDiscussions.length} active ·{" "}
+                {communityConversationParticipantTotal(communityDiscussions)}{" "}
+                {communityConversationParticipantTotal(communityDiscussions) === 1
+                  ? "participant"
+                  : "participants"}
+              </span>
             </div>
           </div>
         </div>
@@ -2018,7 +2282,13 @@ export default function Communities({
               </p>
             </div>
             <div className="community-heading-actions">
-              <span className="community-result-count">{communityDiscussions.length} active</span>
+              <span className="community-result-count">
+                {communityDiscussions.length} active ·{" "}
+                {communityConversationParticipantTotal(communityDiscussions)}{" "}
+                {communityConversationParticipantTotal(communityDiscussions) === 1
+                  ? "participant"
+                  : "participants"}
+              </span>
               {canCreateDiscussion && (
                 <button
                   type="button"
@@ -2124,11 +2394,11 @@ export default function Communities({
                   <div className="community-conversation-main">
                     <strong>{discussion.title}</strong>
                     <div className="community-conversation-context">
-                      <span>COMMUNITY</span>
                       <span>{selectedCategory.name}</span>
                       {discussion.is_pinned && <span>PINNED</span>}
                       {discussion.is_locked && <span>LOCKED</span>}
                     </div>
+                    {renderCommunityConversationIdentity(discussion)}
                   </div>
                   <div className="community-conversation-stat">
                     <strong>{discussion.reply_count || 0}</strong>
@@ -3610,7 +3880,19 @@ export default function Communities({
                   </div>
                   <div className="community-heading-actions">
                     <span className="community-result-count">
-                      {communityDiscussions.filter((discussion) => discussion.community_category_id == null).length} active
+                      {communityDiscussions.filter((discussion) => discussion.community_category_id == null).length} active ·{" "}
+                      {communityConversationParticipantTotal(
+                        communityDiscussions.filter(
+                          (discussion) => discussion.community_category_id == null
+                        )
+                      )}{" "}
+                      {communityConversationParticipantTotal(
+                        communityDiscussions.filter(
+                          (discussion) => discussion.community_category_id == null
+                        )
+                      ) === 1
+                        ? "participant"
+                        : "participants"}
                     </span>
                     {canCreateDiscussion && (
                       <button
@@ -3715,11 +3997,13 @@ export default function Communities({
                         >
                           <div className="community-conversation-main">
                             <strong>{discussion.title}</strong>
-                            <div className="community-conversation-context">
-                              <span>COMMUNITY</span>
-                              {discussion.is_pinned && <span>PINNED</span>}
-                              {discussion.is_locked && <span>LOCKED</span>}
-                            </div>
+                            {(discussion.is_pinned || discussion.is_locked) && (
+                              <div className="community-conversation-context">
+                                {discussion.is_pinned && <span>PINNED</span>}
+                                {discussion.is_locked && <span>LOCKED</span>}
+                              </div>
+                            )}
+                            {renderCommunityConversationIdentity(discussion)}
                           </div>
                           <div className="community-conversation-stat">
                             <strong>{discussion.reply_count || 0}</strong>

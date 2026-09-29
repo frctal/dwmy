@@ -17,7 +17,7 @@ export default function Home({
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setHeroSlide((current) => (current + 1) % 2);
+      setHeroSlide((current) => (current + 1) % 3);
     }, 9000);
 
     return () => window.clearInterval(timer);
@@ -109,7 +109,7 @@ export default function Home({
 
             <article className="hero home-hero-slide community-coming-soon">
               <div className="hero-copy">
-                <span className="eyebrow">Communities · Coming Soon</span>
+                <span className="eyebrow">Communities · Beta</span>
                 <h1>Build your community.</h1>
                 <p>
                   Create your own space on DWMY for traders, teams, friends, or
@@ -124,7 +124,28 @@ export default function Home({
               <div className="community-coming-soon-mark">
                 <span>FRCTAL / DWMY</span>
                 <strong>COMMUNITIES</strong>
-                <small>COMING SOON</small>
+                <small>BETA</small>
+              </div>
+            </article>
+
+            <article className="hero home-hero-slide community-coming-soon">
+              <div className="hero-copy">
+                <span className="eyebrow">Conversations · Beta</span>
+                <h1>A forum for everything worth discussing.</h1>
+                <p>
+                  Start persistent forum conversations beyond the market directory.
+                  Discuss ideas, research, events, questions, and whatever matters to
+                  the DWMY community without losing the thread.
+                </p>
+                <strong className="community-hero-line">
+                  Start a topic. Build the discussion. Keep the conversation.
+                </strong>
+              </div>
+
+              <div className="community-coming-soon-mark">
+                <span>FRCTAL / DWMY</span>
+                <strong>CONVERSATIONS</strong>
+                <small>BETA</small>
               </div>
             </article>
           </div>
@@ -133,20 +154,20 @@ export default function Home({
         <button
           className="hero-carousel-arrow hero-carousel-prev"
           aria-label="Previous introduction"
-          onClick={() => setHeroSlide((heroSlide + 1) % 2)}
+          onClick={() => setHeroSlide((heroSlide + 2) % 3)}
         >
           ‹
         </button>
         <button
           className="hero-carousel-arrow hero-carousel-next"
           aria-label="Next introduction"
-          onClick={() => setHeroSlide((heroSlide + 1) % 2)}
+          onClick={() => setHeroSlide((heroSlide + 1) % 3)}
         >
           ›
         </button>
 
         <div className="hero-carousel-dots" aria-label="Introduction slides">
-          {[0, 1].map((slide) => (
+          {[0, 1, 2].map((slide) => (
             <button
               key={slide}
               className={heroSlide === slide ? "active" : ""}

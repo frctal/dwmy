@@ -28,6 +28,7 @@ export default function Header({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -309,6 +310,21 @@ export default function Header({
     };
   }, [searchOpen, searchQuery]);
 
+  useEffect(() => {
+    setHeaderMenuOpen(false);
+  }, [page]);
+
+  useEffect(() => {
+    if (!headerMenuOpen) return undefined;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") setHeaderMenuOpen(false);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [headerMenuOpen]);
+
   function chooseSearchResult(result) {
     setSearchOpen(false);
     setSearchQuery("");
@@ -508,11 +524,89 @@ export default function Header({
               Sign Out
             </button>
           </div>
+
+          <button
+            type="button"
+            className={headerMenuOpen ? "header-menu-toggle active" : "header-menu-toggle"}
+            onClick={() => setHeaderMenuOpen((open) => !open)}
+            aria-label="Open navigation menu"
+            aria-expanded={headerMenuOpen}
+            aria-controls="dwmy-header-menu"
+          >
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+          </button>
         </div>
 
         <div className="presence-edge presence-edge-right" title="DWMY market session">
           <span><strong>Market Session:</strong> {marketSession || "—"}</span>
         </div>
+
+        {headerMenuOpen && (
+          <div className="header-responsive-menu" id="dwmy-header-menu">
+            <div className="header-responsive-status">
+              <span>
+                <i
+                  className={presenceConnected ? "heartbeat-dot connected" : "heartbeat-dot"}
+                  aria-hidden="true"
+                />
+                <strong>Users Online:</strong> {onlineUsers}
+              </span>
+              <span><strong>Market Session:</strong> {marketSession || "—"}</span>
+            </div>
+
+            <div className="header-responsive-nav">
+              <button onClick={() => setPage("markets")}>Markets</button>
+              <button
+                onClick={() => {
+                  if (canUseConversations) setPage("conversations");
+                }}
+                aria-disabled={!canUseConversations}
+              >
+                Conversations <span className="access-superscript">BETA</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (canUseCommunities) setPage("communities");
+                }}
+                aria-disabled={!canUseCommunities}
+              >
+                Communities <span className="access-superscript">BETA</span>
+              </button>
+            </div>
+
+            <div className="header-responsive-nav header-responsive-secondary">
+              <button onClick={() => { setSearchOpen(true); setHeaderMenuOpen(false); }}>Search</button>
+              <button onClick={() => setPage("notifications")}>
+                Notifications{unreadNotifications > 0 ? ` (${unreadNotifications})` : ""}
+              </button>
+              <button
+                onClick={() => {
+                  if (canUseMessaging) setPage("messages");
+                }}
+                aria-disabled={!canUseMessaging}
+              >
+                Messages <span className="access-superscript">PRO</span>
+                {canUseMessaging && unreadMessages > 0 ? ` (${unreadMessages})` : ""}
+              </button>
+              {isAdmin && <button onClick={() => setPage("admin")}>Admin</button>}
+            </div>
+
+            <div className="header-responsive-account">
+              <button type="button" onClick={onOpenSettings}>
+                <span className="avatar">
+                  {avatarUrl ? <img src={avatarUrl} alt="" /> : user.username?.[0]?.toUpperCase() || "U"}
+                </span>
+                <span className="user-identity">
+                  <strong>{user.username}</strong>
+                  <span>{user.role.toUpperCase()}</span>
+                </span>
+              </button>
+              <button type="button" onClick={onLogout}>Sign Out</button>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
