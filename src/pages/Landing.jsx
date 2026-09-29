@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 
 export default function Landing() {
   const [mode, setMode] = useState("landing");
+  const [heroSlide, setHeroSlide] = useState(0);
   const [email, setEmail] = useState("");
   const [signupUsername, setSignupUsername] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
@@ -31,6 +32,14 @@ export default function Landing() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setHeroSlide((current) => (current + 1) % 3);
+    }, 9000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   async function resolveLoginEmail(identity) {
@@ -535,6 +544,103 @@ export default function Landing() {
             <span>Conversations</span>
             <span>Research</span>
             <span>Live</span>
+          </div>
+        </section>
+
+        <section className="home-hero-carousel">
+          <div className="home-hero-viewport">
+            <div
+              className="home-hero-track"
+              style={{ transform: `translateX(-${heroSlide * 100}%)` }}
+            >
+              <article className="hero home-hero-slide community-coming-soon">
+                <div className="hero-copy">
+                  <span className="eyebrow">Markets · Free</span>
+                  <h1>Every market. Every period. One permanent conversation.</h1>
+                  <p>
+                    Discussions are organized around the market itself - from today's
+                    price action to the larger weekly, monthly and yearly structure.
+                  </p>
+                  <strong className="community-hero-line">
+                    Follow the market. Follow the structure. Keep the history.
+                  </strong>
+                </div>
+
+                <div className="community-coming-soon-mark">
+                  <span>FRCTAL / DWMY</span>
+                  <strong>MARKETS</strong>
+                  <small>FREE</small>
+                </div>
+              </article>
+
+              <article className="hero home-hero-slide community-coming-soon">
+                <div className="hero-copy">
+                  <span className="eyebrow">Communities · Beta</span>
+                  <h1>Build your community.</h1>
+                  <p>
+                    Create your own space on DWMY for traders, teams, friends, or
+                    education. Choose the markets your community follows and discuss
+                    them through the same Day / Week / Month / Year structure.
+                  </p>
+                  <strong className="community-hero-line">
+                    Your members. Your markets. Your conversation.
+                  </strong>
+                </div>
+
+                <div className="community-coming-soon-mark">
+                  <span>FRCTAL / DWMY</span>
+                  <strong>COMMUNITIES</strong>
+                  <small>BETA</small>
+                </div>
+              </article>
+
+              <article className="hero home-hero-slide community-coming-soon">
+                <div className="hero-copy">
+                  <span className="eyebrow">Conversations · PRO</span>
+                  <h1>A forum for everything worth discussing.</h1>
+                  <p>
+                    Start persistent forum conversations beyond the market directory.
+                    Discuss ideas, research, events, questions, and whatever matters to
+                    the DWMY community without losing the thread.
+                  </p>
+                  <strong className="community-hero-line">
+                    Start a topic. Build the discussion. Keep the conversation.
+                  </strong>
+                </div>
+
+                <div className="community-coming-soon-mark">
+                  <span>FRCTAL / DWMY</span>
+                  <strong>CONVERSATIONS</strong>
+                  <small>PRO</small>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <button
+            className="hero-carousel-arrow hero-carousel-prev"
+            aria-label="Previous introduction"
+            onClick={() => setHeroSlide((heroSlide + 2) % 3)}
+          >
+            ‹
+          </button>
+          <button
+            className="hero-carousel-arrow hero-carousel-next"
+            aria-label="Next introduction"
+            onClick={() => setHeroSlide((heroSlide + 1) % 3)}
+          >
+            ›
+          </button>
+
+          <div className="hero-carousel-dots" aria-label="Introduction slides">
+            {[0, 1, 2].map((slide) => (
+              <button
+                key={slide}
+                className={heroSlide === slide ? "active" : ""}
+                aria-label={`Show introduction ${slide + 1}`}
+                onClick={() => setHeroSlide(slide)}
+              />
+            ))}
           </div>
         </section>
 
