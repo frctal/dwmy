@@ -8,6 +8,7 @@ export default function Header({
   onOpenSettings,
   onLogout,
   onOpenSearchResult,
+  onRequirePro,
   entitlements = [],
   unreadNotifications = 0,
   unreadMessages = 0,
@@ -359,16 +360,17 @@ export default function Header({
             className={page === "conversations" ? "active" : ""}
             onClick={() => {
               if (canUseConversations) setPage("conversations");
+              else onRequirePro?.("CONVERSATIONS");
             }}
             title={
               canUseConversations
                 ? "Conversations"
-                : "DWMY Beta — currently available to Beta members"
+                : "DWMY Pro — Conversations"
             }
             aria-disabled={!canUseConversations}
           >
             Conversations
-            <span className="access-superscript">BETA</span>
+            <span className="access-superscript">PRO</span>
           </button>
 
           <button
@@ -465,6 +467,7 @@ export default function Header({
             }
             onClick={() => {
               if (canUseMessaging) setPage("messages");
+              else onRequirePro?.("MESSAGING");
             }}
             aria-label="Messages"
             aria-disabled={!canUseMessaging}
@@ -561,10 +564,12 @@ export default function Header({
               <button
                 onClick={() => {
                   if (canUseConversations) setPage("conversations");
+                  else onRequirePro?.("CONVERSATIONS");
+                  setHeaderMenuOpen(false);
                 }}
                 aria-disabled={!canUseConversations}
               >
-                Conversations <span className="access-superscript">BETA</span>
+                Conversations <span className="access-superscript">PRO</span>
               </button>
               <button
                 onClick={() => {
@@ -584,6 +589,8 @@ export default function Header({
               <button
                 onClick={() => {
                   if (canUseMessaging) setPage("messages");
+                  else onRequirePro?.("MESSAGING");
+                  setHeaderMenuOpen(false);
                 }}
                 aria-disabled={!canUseMessaging}
               >

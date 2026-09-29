@@ -4,6 +4,9 @@ import { supabase } from "../lib/supabaseClient";
 export default function Landing() {
   const [mode, setMode] = useState("landing");
   const [email, setEmail] = useState("");
+  const [signupUsername, setSignupUsername] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
   const [loginIdentity, setLoginIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -119,6 +122,66 @@ export default function Landing() {
     }
   }
 
+  async function signUp(event) {
+    event.preventDefault();
+    resetStatus();
+
+    const cleanEmail = email.trim();
+    const cleanUsername = signupUsername.trim();
+
+    if (!cleanEmail) {
+      setError("Enter your email address.");
+      return;
+    }
+
+    if (!/^[A-Za-z0-9_]{2,24}$/.test(cleanUsername)) {
+      setError("Username must be 2-24 characters using only letters, numbers, or underscores.");
+      return;
+    }
+
+    if (signupPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (signupPassword !== signupConfirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const emailRedirectTo = `${window.location.origin}${window.location.pathname}`;
+
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: signupPassword,
+        options: {
+          emailRedirectTo,
+          data: {
+            username: cleanUsername,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+
+      if (data?.session) {
+        setMessage("Account created. Entering DWMY...");
+        return;
+      }
+
+      setSignupPassword("");
+      setSignupConfirmPassword("");
+      setMessage("Account created. Check your email to verify your address, then return to DWMY to continue setup.");
+    } catch (err) {
+      setError(err.message || "Unable to create your account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
     resetStatus();
@@ -161,8 +224,8 @@ export default function Landing() {
 
         <div className="auth-card">
           <span className="eyebrow">
-            {mode === "closed"
-              ? "DWMY Beta"
+            {mode === "signup"
+              ? "Join DWMY"
               : mode === "forgot"
               ? "Account recovery"
               : mode === "recovery"
@@ -171,8 +234,8 @@ export default function Landing() {
           </span>
 
           <h1>
-            {mode === "closed"
-              ? "Registrations are temporarily closed."
+            {mode === "signup"
+              ? "Create your DWMY account."
               : mode === "forgot"
               ? "Reset your password."
               : mode === "recovery"
@@ -181,8 +244,8 @@ export default function Landing() {
           </h1>
 
           <p>
-            {mode === "closed"
-              ? "DWMY Beta is currently closed to new registrations. Existing members can continue to sign in."
+            {mode === "signup"
+              ? "Free accounts include Markets. Verify your email, complete setup, then enter DWMY."
               : mode === "forgot"
               ? "Enter the email address connected to your DWMY account."
               : mode === "recovery"
@@ -190,12 +253,78 @@ export default function Landing() {
               : "Enter your market network."}
           </p>
 
-          {mode === "closed" ? (
-            <div className="auth-switch">
-              <button onClick={() => openMode("signin")}>
-                Sign in to an existing account
+          {mode === "signup" ? (
+            <form onSubmit={signUp}>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
+              </label>
+
+              <label>
+                Username
+                <input
+                  value={signupUsername}
+                  onChange={(e) => setSignupUsername(e.target.value)}
+                  placeholder="username"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  minLength={2}
+                  maxLength={24}
+                  pattern="[A-Za-z0-9_]+"
+                  required
+                />
+              </label>
+
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={signupPassword}
+                  onChange={(e) => setSignupPassword(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                />
+              </label>
+
+              <label>
+                Confirm password
+                <input
+                  type="password"
+                  value={signupConfirmPassword}
+                  onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                />
+              </label>
+
+              {error && <div className="auth-error">{error}</div>}
+              {message && <div className="auth-success">{message}</div>}
+
+              <button
+                className="auth-submit"
+                type="submit"
+                disabled={busy}
+              >
+                {busy ? "Creating account..." : "Create Free Account"}
               </button>
-            </div>
+
+              <div className="auth-switch">
+                Already have an account?{" "}
+                <button type="button" onClick={() => openMode("signin")}>
+                  Sign in
+                </button>
+              </div>
+            </form>
           ) : mode === "forgot" ? (
             <form onSubmit={requestPasswordReset}>
               <label>
@@ -322,7 +451,10 @@ export default function Landing() {
 
           {mode === "signin" && (
             <div className="auth-switch">
-              New registrations are temporarily closed during DWMY Beta.
+              New to DWMY?{" "}
+              <button onClick={() => openMode("signup")}>
+                Create a free account
+              </button>
             </div>
           )}
         </div>
@@ -348,9 +480,9 @@ export default function Landing() {
 
           <button
             className="landing-join-small"
-            onClick={() => openMode("closed")}
+            onClick={() => openMode("signup")}
           >
-            Beta Access
+            Create Account
           </button>
         </div>
       </header>
@@ -384,9 +516,9 @@ export default function Landing() {
           <div className="landing-actions">
             <button
               className="landing-primary"
-              onClick={() => openMode("closed")}
+              onClick={() => openMode("signup")}
             >
-              Beta Access
+              Create Account
             </button>
 
             <button

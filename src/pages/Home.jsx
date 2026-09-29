@@ -24,7 +24,8 @@ export default function Home({
   }, []);
 
   const [stats, setStats] = useState({
-    markets: 0,
+    assetClasses: 0,
+    instruments: 0,
     discussions: 0,
     posts: 0,
   });
@@ -32,7 +33,8 @@ export default function Home({
   useEffect(() => {
     async function loadStats() {
       const [
-        marketsResult,
+        assetClassesResult,
+        instrumentsResult,
         discussionsResult,
         postsResult,
       ] = await Promise.all([
@@ -46,26 +48,37 @@ export default function Home({
           .eq("is_active", true),
 
         supabase
+          .from("instruments")
+          .select("*", {
+            count: "exact",
+            head: true,
+          })
+          .eq("is_active", true),
+
+        supabase
           .from("discussions")
           .select("*", {
             count: "exact",
             head: true,
           })
-          .eq("is_deleted", false),
+          .eq("is_deleted", false)
+          .eq("discussion_type", "MARKET_SEGMENT"),
 
         supabase
           .from("posts")
-          .select("*", {
+          .select("id, discussions!inner(id)", {
             count: "exact",
             head: true,
           })
-          .eq("is_deleted", false),
+          .eq("is_deleted", false)
+          .eq("discussions.is_deleted", false)
+          .eq("discussions.discussion_type", "MARKET_SEGMENT"),
       ]);
 
       setStats({
-        markets: marketsResult.count || 0,
-        discussions:
-          discussionsResult.count || 0,
+        assetClasses: assetClassesResult.count || 0,
+        instruments: instrumentsResult.count || 0,
+        discussions: discussionsResult.count || 0,
         posts: postsResult.count || 0,
       });
     }
@@ -93,8 +106,12 @@ export default function Home({
 
               <div className="hero-stat-grid">
                 <div>
-                  <strong>{stats.markets}</strong>
-                  <span>Active markets</span>
+                  <strong>{stats.assetClasses}</strong>
+                  <span>Asset classes</span>
+                </div>
+                <div>
+                  <strong>{stats.instruments}</strong>
+                  <span>Available instruments</span>
                 </div>
                 <div>
                   <strong>{stats.discussions}</strong>

@@ -32,7 +32,6 @@ export default function Settings({
 }) {
   const fileInputRef = useRef(null);
 
-  const [displayName, setDisplayName] = useState(user.display_name || "");
   const [bio, setBio] = useState(user.bio || "");
   const [signature, setSignature] = useState(user.signature || "");
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -51,11 +50,18 @@ export default function Settings({
   const [passwordMessage, setPasswordMessage] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
+  const [billing, setBilling] = useState(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [billingError, setBillingError] = useState("");
+  const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
+  const [billingPortalError, setBillingPortalError] = useState("");
+
+
+
   useEffect(() => {
-    setDisplayName(user.display_name || "");
     setBio(user.bio || "");
     setSignature(user.signature || "");
-  }, [user.display_name, user.bio, user.signature]);
+  }, [user.bio, user.signature]);
 
   useEffect(() => {
     let alive = true;
@@ -87,6 +93,36 @@ export default function Settings({
       alive = false;
     };
   }, [user.avatar_path]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBilling() {
+      setBillingLoading(true);
+      setBillingError("");
+
+      const { data, error } = await supabase.rpc("get_my_billing_status");
+
+      if (!alive) return;
+
+      if (error) {
+        console.error("Billing status load failed:", error);
+        setBilling(null);
+        setBillingError(error.message || "Unable to load billing status.");
+        setBillingLoading(false);
+        return;
+      }
+
+      setBilling(Array.isArray(data) && data.length > 0 ? data[0] : null);
+      setBillingLoading(false);
+    }
+
+    loadBilling();
+
+    return () => {
+      alive = false;
+    };
+  }, [user.id]);
 
   useEffect(() => {
     setAppearanceMode(appearance.mode || "dark");
@@ -131,14 +167,12 @@ export default function Settings({
     setProfileError("");
     setSavingProfile(true);
 
-    const cleanDisplayName = displayName.trim();
     const cleanBio = bio.trim();
     const cleanSignature = signature.trim();
 
     const { error } = await supabase
       .from("profiles")
       .update({
-        display_name: cleanDisplayName || null,
         bio: cleanBio || null,
         signature: cleanSignature || null,
         updated_at: new Date().toISOString(),
@@ -153,7 +187,6 @@ export default function Settings({
       return;
     }
 
-    setDisplayName(cleanDisplayName);
     setBio(cleanBio);
     setSignature(cleanSignature);
     await refreshIdentity();
@@ -309,6 +342,61 @@ export default function Settings({
     setPasswordMessage("Password changed.");
   }
 
+  async function openBillingPortal() {
+    if (openingBillingPortal) return;
+
+    setBillingPortalError("");
+    setOpeningBillingPortal(true);
+
+    const { data, error } = await supabase.functions.invoke(
+      "create-billing-portal",
+      {
+        body: {
+          return_url: window.location.href,
+        },
+      },
+    );
+
+    if (error) {
+      console.error("Billing portal failed:", error);
+      setBillingPortalError(
+        error.message || "Unable to open billing management.",
+      );
+      setOpeningBillingPortal(false);
+      return;
+    }
+
+    if (!data?.portal_url) {
+      console.error("Billing portal returned no URL:", data);
+      setBillingPortalError("Stripe did not return a billing portal URL.");
+      setOpeningBillingPortal(false);
+      return;
+    }
+
+    window.location.assign(data.portal_url);
+  }
+
+  const hasProEntitlements =
+    entitlements.includes("CONVERSATIONS") &&
+    entitlements.includes("LIVE_CHAT") &&
+    entitlements.includes("MESSAGING");
+
+  const billingStatus = billing?.subscription_status || null;
+  const billingIsActive =
+    billingStatus === "active" || billingStatus === "trialing";
+  const currentPlan = billingIsActive && hasProEntitlements ? "DWMY PRO" : "DWMY Free";
+
+  function formatBillingDate(value) {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
   const roleLabel =
     user.role === "admin"
       ? "ADMIN"
@@ -383,17 +471,6 @@ export default function Settings({
             <span>Username</span>
             <input value={`@${user.username}`} disabled />
             <small>Your DWMY username is fixed.</small>
-          </label>
-
-          <label>
-            <span>Display name</span>
-            <input
-              value={displayName}
-              maxLength={80}
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="Display name"
-            />
-            <small>{displayName.length} / 80</small>
           </label>
 
           <label>
@@ -600,35 +677,110 @@ export default function Settings({
       <section className="settings-card">
         <div className="settings-card-heading">
           <div>
-            <span className="eyebrow">MEMBERSHIP</span>
-            <h2>DWMY access</h2>
+            <span className="eyebrow">PLAN & BILLING</span>
+            <h2>DWMY membership</h2>
           </div>
+          <span className="settings-username">{currentPlan}</span>
         </div>
+
+        {billingError && (
+          <div className="settings-status error">{billingError}</div>
+        )}
 
         <div className="settings-membership-grid">
           <div>
-            <span>Access</span>
-            <strong>
-              {entitlements.length > 0 ? "Private Beta" : "No platform access"}
-            </strong>
+            <span>Current plan</span>
+            <strong>{billingLoading ? "Loading..." : currentPlan}</strong>
           </div>
           <div>
             <span>Role</span>
             <strong>{roleLabel}</strong>
           </div>
           <div>
+            <span>Markets</span>
+            <strong>{entitlements.includes("MARKETS") ? "Included" : "Not available"}</strong>
+          </div>
+          <div>
+            <span>PRO status</span>
+            <strong>
+              {billingLoading
+                ? "Loading..."
+                : billingIsActive
+                  ? billingStatus === "trialing"
+                    ? "Trialing"
+                    : "Active"
+                  : billingStatus === "canceled"
+                    ? "Canceled"
+                    : "Not subscribed"}
+            </strong>
+          </div>
+
+          {billing && (
+            <>
+              <div>
+                <span>Billing</span>
+                <strong>
+                  {billing.billing_period === "yearly"
+                    ? "Yearly"
+                    : billing.billing_period === "monthly"
+                      ? "Monthly"
+                      : "—"}
+                </strong>
+              </div>
+              <div>
+                <span>
+                  {billingIsActive && billing.cancel_at_period_end
+                    ? "Access until"
+                    : billingIsActive
+                      ? "Renews"
+                      : "Last period ended"}
+                </span>
+                <strong>{formatBillingDate(billing.current_period_end)}</strong>
+              </div>
+            </>
+          )}
+
+          <div>
             <span>Entitlements</span>
             <strong>
-              {entitlements.length > 0
-                ? entitlements.join(" · ")
-                : "None"}
+              {entitlements.length > 0 ? entitlements.join(" · ") : "None"}
             </strong>
           </div>
           <div>
-            <span>Subscription</span>
-            <strong>Coming later</strong>
+            <span>PRO includes</span>
+            <strong>Conversations · Live Chat · Messaging</strong>
           </div>
         </div>
+
+        {!billingLoading && !billingIsActive && (
+          <p className="settings-appearance-copy">
+            DWMY Free includes Markets. PRO adds Conversations, Live Chat, and Messaging.
+          </p>
+        )}
+
+        {!billingLoading && billingIsActive && billing.cancel_at_period_end && (
+          <div className="settings-status">
+            Your PRO subscription is canceled and remains available through{" "}
+            {formatBillingDate(billing.current_period_end)}.
+          </div>
+        )}
+
+        {billingPortalError && (
+          <div className="settings-status error">{billingPortalError}</div>
+        )}
+
+        {!billingLoading && billing && (
+          <div className="settings-form-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={openingBillingPortal}
+              onClick={openBillingPortal}
+            >
+              {openingBillingPortal ? "Opening Stripe..." : "Manage billing"}
+            </button>
+          </div>
+        )}
       </section>
     </section>
   );

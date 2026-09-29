@@ -7,6 +7,7 @@ import Header from "./components/Header";
 
 import Landing from "./pages/Landing";
 import AccessGate from "./pages/AccessGate";
+import ProfileOnboarding from "./pages/ProfileOnboarding";
 import Home from "./pages/Home";
 import Discussion from "./pages/Discussion";
 import Instrument from "./pages/Instrument";
@@ -69,6 +70,188 @@ function loadStoredAppearance() {
   }
 }
 
+function ProAccessGate({ feature, onBack }) {
+  const [trialStatus, setTrialStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [checkoutBusy, setCheckoutBusy] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadTrialStatus() {
+      setLoading(true);
+      setError("");
+
+      const { data, error: statusError } = await supabase.rpc(
+        "get_my_stripe_pro_trial_status"
+      );
+
+      if (!alive) return;
+
+      if (statusError) {
+        setError(statusError.message || "Unable to check your PRO trial status.");
+        setLoading(false);
+        return;
+      }
+
+      setTrialStatus(
+        data?.[0] || {
+          status: "NEVER_USED",
+          billing_period: null,
+          started_at: null,
+          consumed_at: null,
+        }
+      );
+      setLoading(false);
+    }
+
+    loadTrialStatus();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function startCheckout(billingPeriod, checkoutType = "subscription") {
+    const busyKey = `${checkoutType}:${billingPeriod}`;
+    setCheckoutBusy(busyKey);
+    setError("");
+
+    try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}`;
+
+      const { data, error: checkoutError } = await supabase.functions.invoke(
+        "create-pro-checkout",
+        {
+          body: {
+            billing_period: billingPeriod,
+            checkout_type: checkoutType,
+            success_url: returnUrl,
+            cancel_url: returnUrl,
+          },
+        }
+      );
+
+      if (checkoutError) throw checkoutError;
+      if (!data?.checkout_url) throw new Error("Stripe Checkout URL was not returned.");
+
+      window.location.assign(data.checkout_url);
+    } catch (err) {
+      console.error("PRO checkout failed:", err);
+      setError(err.message || "Unable to open Stripe Checkout.");
+      setCheckoutBusy("");
+    }
+  }
+
+  const featureLabel =
+    feature === "MESSAGING"
+      ? "Messages"
+      : feature === "LIVE_CHAT"
+        ? "Live Chat"
+        : "Conversations";
+
+  const trialAvailable = trialStatus?.status === "NEVER_USED";
+
+  return (
+    <section className="access-denied" style={{ maxWidth: 720, margin: "56px auto" }}>
+      <span className="eyebrow">DWMY PRO</span>
+      <h1>{featureLabel} is a PRO feature.</h1>
+      <p>
+        PRO includes Conversations, Live Chat participation, and direct Messaging.
+        Markets remain included with your Free account.
+      </p>
+
+      {loading ? (
+        <p>Checking your PRO access...</p>
+      ) : trialAvailable ? (
+        <>
+          <h2>Try DWMY PRO FREE for 7 days.</h2>
+          <p>
+            Choose monthly or yearly billing. A payment method is required through
+            Stripe. You will not be charged until the 7-day trial ends, and you can
+            cancel before then.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 22 }}>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={Boolean(checkoutBusy)}
+              onClick={() => startCheckout("monthly", "trial")}
+            >
+              {checkoutBusy === "trial:monthly"
+                ? "Opening Stripe..."
+                : "7 days free · then $1.52/month"}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={Boolean(checkoutBusy)}
+              onClick={() => startCheckout("yearly", "trial")}
+            >
+              {checkoutBusy === "trial:yearly"
+                ? "Opening Stripe..."
+                : "7 days free · then $9.12/year"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={Boolean(checkoutBusy)}
+              onClick={onBack}
+            >
+              Back to Markets
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <h2>Your PRO trial has been used.</h2>
+          <p>
+            Subscribe to DWMY PRO to unlock Conversations, Live Chat participation,
+            and Messaging. Markets remain included with your Free account.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 22 }}>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={Boolean(checkoutBusy)}
+              onClick={() => startCheckout("monthly", "subscription")}
+            >
+              {checkoutBusy === "subscription:monthly"
+                ? "Opening Stripe..."
+                : "PRO Monthly · $1.52/month"}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={Boolean(checkoutBusy)}
+              onClick={() => startCheckout("yearly", "subscription")}
+            >
+              {checkoutBusy === "subscription:yearly"
+                ? "Opening Stripe..."
+                : "PRO Yearly · $9.12/year"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={Boolean(checkoutBusy)}
+              onClick={onBack}
+            >
+              Back to Markets
+            </button>
+          </div>
+        </>
+      )}
+
+      {error && (
+        <p role="alert" style={{ marginTop: 20, color: "#ff9c9c" }}>
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [appearance, setAppearance] = useState(() => loadStoredAppearance());
   const [session, setSession] = useState(null);
@@ -85,6 +268,7 @@ export default function App() {
   const [selectedMessageConversation, setSelectedMessageConversation] = useState(null);
   const [selectedModerationIncident, setSelectedModerationIncident] = useState(null);
   const [communityReturnContext, setCommunityReturnContext] = useState(null);
+  const [proGateFeature, setProGateFeature] = useState(null);
 
   const [
     selectedDiscussion,
@@ -190,7 +374,7 @@ export default function App() {
     } = await supabase
       .from("profiles")
       .select(
-        "id, username, display_name, bio, signature, avatar_path, created_at"
+        "id, username, display_name, bio, signature, avatar_path, country, onboarding_completed_at, profile_setup_skipped, created_at"
       )
       .eq("id", authUser.id)
       .single();
@@ -399,6 +583,10 @@ export default function App() {
 
   async function messageUser(profile) {
     if (!profile?.id || profile.id === user?.id) return;
+    if (!entitlements.includes("MESSAGING")) {
+      requirePro("MESSAGING");
+      return;
+    }
 
     const { data, error } = await supabase.rpc(
       "start_direct_conversation",
@@ -431,6 +619,27 @@ export default function App() {
     window.scrollTo(0, 0);
     loadActivityCounts(true);
   }
+
+  function requirePro(feature) {
+    const requiredEntitlement =
+      feature === "MESSAGING"
+        ? "MESSAGING"
+        : feature === "LIVE_CHAT"
+          ? "LIVE_CHAT"
+          : "CONVERSATIONS";
+
+    if (entitlements.includes(requiredEntitlement)) {
+      if (requiredEntitlement === "MESSAGING") setPage("messages");
+      if (requiredEntitlement === "CONVERSATIONS") setPage("conversations");
+      return true;
+    }
+
+    setProGateFeature(requiredEntitlement);
+    window.location.hash = "";
+    window.scrollTo(0, 0);
+    return false;
+  }
+
 
   async function handleAccessGranted() {
     await loadAccess(true, false);
@@ -580,6 +789,25 @@ export default function App() {
     );
   }
 
+  if (!user.onboarding_completed_at) {
+    return (
+      <ProfileOnboarding
+        user={user}
+        onComplete={async () => {
+          if (session?.user) {
+            await loadIdentity(session.user, true);
+            await loadAccess(true, false);
+          }
+
+          setPage("home");
+          setSelectedDiscussion(null);
+          setSelectedInstrument(null);
+          window.scrollTo(0, 0);
+        }}
+      />
+    );
+  }
+
   const hasPlatformAccess =
     entitlements.includes("MARKETS") ||
     entitlements.includes("CONVERSATIONS") ||
@@ -624,6 +852,7 @@ export default function App() {
         unreadNotifications={unreadNotifications}
         unreadMessages={unreadMessages}
         entitlements={entitlements}
+        onRequirePro={requirePro}
       />
 
       <main
@@ -633,7 +862,18 @@ export default function App() {
             : "site-container"
         }
       >
-        {page === "home" && (
+        {proGateFeature && (
+          <ProAccessGate
+            feature={proGateFeature}
+            onBack={() => {
+              setProGateFeature(null);
+              setPage("markets");
+              window.scrollTo(0, 0);
+            }}
+          />
+        )}
+
+        {!proGateFeature && page === "home" && (
           <Home
             user={user}
             entitlements={entitlements}
@@ -650,11 +890,11 @@ export default function App() {
           />
         )}
 
-        {page === "markets" && (
+        {!proGateFeature && page === "markets" && (
           <MarketDirectory openInstrument={openInstrument} />
         )}
 
-        {page === "conversations" && (
+        {!proGateFeature && page === "conversations" && (
           <Conversations
             user={user}
             entitlements={entitlements}
@@ -665,7 +905,7 @@ export default function App() {
         )}
 
 
-        {page === "communities" && (
+        {!proGateFeature && page === "communities" && (
           <Communities
             user={user}
             openDiscussion={openCommunityDiscussion}
@@ -674,7 +914,7 @@ export default function App() {
           />
         )}
 
-        {page === "instrument" &&
+        {!proGateFeature && page === "instrument" &&
           selectedInstrument && (
             <Instrument
               section={
@@ -694,7 +934,7 @@ export default function App() {
             />
           )}
 
-        {page === "discussion" &&
+        {!proGateFeature && page === "discussion" &&
           selectedDiscussion && (
             <Discussion
               discussion={
@@ -722,7 +962,7 @@ export default function App() {
             />
           )}
 
-        {page === "notifications" && (
+        {!proGateFeature && page === "notifications" && (
           <Notifications
             onOpenPost={openNotificationPost}
             onOpenMessage={openNotificationMessage}
@@ -742,7 +982,7 @@ export default function App() {
           />
         )}
 
-        {page === "messages" && (
+        {!proGateFeature && page === "messages" && (
           <Messages
             user={user}
             initialConversationId={selectedMessageConversation}
@@ -750,7 +990,7 @@ export default function App() {
           />
         )}
 
-        {page === "settings" && (
+        {!proGateFeature && page === "settings" && (
           <Settings
             user={user}
             entitlements={entitlements}
@@ -764,7 +1004,7 @@ export default function App() {
           />
         )}
 
-        {page === "admin" &&
+        {!proGateFeature && page === "admin" &&
           isAdmin && (
             <Admin
               initialModerationIncidentId={selectedModerationIncident}
@@ -772,7 +1012,7 @@ export default function App() {
             />
           )}
 
-        {page === "admin" &&
+        {!proGateFeature && page === "admin" &&
           !isAdmin && (
             <section className="access-denied">
               <span className="eyebrow">
